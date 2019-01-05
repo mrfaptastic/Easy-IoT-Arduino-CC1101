@@ -4,7 +4,7 @@ This is an easy to use Arduino CC1101 library (working example) to be able to co
 
 # Buying a CC1101
 
-CC1101 modules can be bought [for a few bucks](https://www.aliexpress.com/item/CC1101-Wireless-Module-Long-Distance-Transmission-Antenna-868MHZ-M115/32635393463.html).
+CC1101 modules can be bought [for a few bucks](https://www.aliexpress.com/item/CC1101-Wireless-Module-Long-Distance-Transmission-Antenna-868MHZ-M115/32635393463.html). These modules are tolerant of voltages randing from 1.8 to 3.3 volts.
 
 # Using a CC1101
 
