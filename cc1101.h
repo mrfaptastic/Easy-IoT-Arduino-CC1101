@@ -12,12 +12,15 @@
 
 /**
  * Carrier frequencies
+ * Use the right one for your location:
+ * https://www.analog.com/media/en/analog-dialogue/volume-40/number-1/articles/wireless-short-range-devices.pdf
+ * https://www.acma.gov.au/Industry/Spectrum/Radiocomms-licensing/Class-licences/shortrange-spreadspectrum-devices-fact-sheet
  */
 enum CFREQ
 {
-  CFREQ_433,  
-  CFREQ_868,
-  CFREQ_915
+  CFREQ_433, // Europe and Australia 
+  CFREQ_868, // Europe Only
+  CFREQ_922  // For the U.S., Canada and Australia
 };
 
 
@@ -307,10 +310,10 @@ static uint8_t currentConfig[NUM_CONFIG_REGISTERS];
   #define CC1101_DEFVAL_FREQ1_868  0x65        // Frequency Control Word, Middle Byte
   #define CC1101_DEFVAL_FREQ0_868  0x6A        // Frequency Control Word, Low Byte
   
-  // Carrier frequency = 902 MHz
-  #define CC1101_DEFVAL_FREQ2_915  0x22        // Frequency Control Word, High Byte
-  #define CC1101_DEFVAL_FREQ1_915  0xB1        // Frequency Control Word, Middle Byte
-  #define CC1101_DEFVAL_FREQ0_915  0x3B        // Frequency Control Word, Low Byte
+  // Carrier frequency = 922 MHz - 921.999878
+  #define CC1101_DEFVAL_FREQ2_922  0x23        // Frequency Control Word, High Byte
+  #define CC1101_DEFVAL_FREQ1_922  0x76        // Frequency Control Word, Middle Byte
+  #define CC1101_DEFVAL_FREQ0_922  0x27        // Frequency Control Word, Low Byte 
   
   // The MDMCFG values will change depending on bitrate
   #define CC1101_DEFVAL_MDMCFG4    0x2D        // Modem Configuration - For 250kbps
@@ -319,7 +322,7 @@ static uint8_t currentConfig[NUM_CONFIG_REGISTERS];
   #define CC1101_DEFVAL_MDMCFG1    0x22        // Modem Configuration - FEC / Preamble (doesn't change)
   #define CC1101_DEFVAL_MDMCFG0    0xF8        // Modem Configuration - Channel Spacing (apparently the same across bands - doesn't change)
   
-  #define CC1101_DEFVAL_DEVIATN    0x35        // Modem Deviation Setting
+  #define CC1101_DEFVAL_DEVIATN    0x35        // Modem Deviation Setting (default for 38.4kbaud)
   
   // These won't change - Modem behaviour. Irrelevant to freq / bitrate
   #define CC1101_DEFVAL_MCSM2      0x07        // Main Radio Control State Machine Configuration  // Stay in RX until end of packet.

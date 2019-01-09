@@ -577,14 +577,14 @@ void CC1101::setCarrierFreq(CFREQ freq)
 {
   switch (freq)
   {
-    case CFREQ_915:
+    case CFREQ_922:
 
       if (serialDebug)
-        Serial.print(F("915Mhz frequency"));
+        Serial.print(F("922Mhz frequency (Canada, US, Australia)"));
 
-      writeReg(CC1101_FREQ2,  CC1101_DEFVAL_FREQ2_915);
-      writeReg(CC1101_FREQ1,  CC1101_DEFVAL_FREQ1_915);
-      writeReg(CC1101_FREQ0,  CC1101_DEFVAL_FREQ0_915);
+      writeReg(CC1101_FREQ2,  CC1101_DEFVAL_FREQ2_922);
+      writeReg(CC1101_FREQ1,  CC1101_DEFVAL_FREQ1_922);
+      writeReg(CC1101_FREQ0,  CC1101_DEFVAL_FREQ0_922);
       break;
     case CFREQ_433:
 
@@ -598,7 +598,7 @@ void CC1101::setCarrierFreq(CFREQ freq)
     default:
 
       if (serialDebug)
-        Serial.print(F("868Mhz frequency"));
+        Serial.print(F("868Mhz frequency (Europe)"));
 
 
       writeReg(CC1101_FREQ2,  CC1101_DEFVAL_FREQ2_868);
