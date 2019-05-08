@@ -18,7 +18,7 @@ This library supports sending large strings/streams of data, using multiple 61 b
 
 Pull this repository, and load the .ino file onto two ESP8266 devices with the opposite sending/receiving addresses configured (refer to the sketch code).
 
-# Connecting your ESP 8266 / ESP 8266
+# Connecting your ESP 8266 / ESP 32
 
 Use the standard SPI ports to connect to the 8 pins on the CC1101 module. For example, with the Wemos D1 Mini (ESP8266 Chip), it's easy as:
 
