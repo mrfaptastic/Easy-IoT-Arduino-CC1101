@@ -82,4 +82,4 @@ Took 203 milliseconds to complete sendChars()
 
 ## Credits
 
-This library builds upon [veonik's](https://github.com/veonik/arduino-cc1101) CC1101 library as a base, which itself it built upon the panStamp library.
+This library builds upon [veonik's](https://github.com/veonik/arduino-cc1101) CC1101 library as a base, which itself is built upon the panStamp library.
