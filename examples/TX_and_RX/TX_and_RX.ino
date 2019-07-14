@@ -39,6 +39,10 @@ void setup()
         delay(2000);
       }
     }
+	
+    radio.setOutputPowerLeveldBm(10); // maximum output power	
+	
+	radio.printPATable();
     
     
     //radio.setDevAddress(0x40); // '@' in ascii   

@@ -225,6 +225,9 @@ void CC1101::writeReg(byte regAddr, byte value)
     Serial.println(value, HEX);
     //    Serial.print(F(" value (DEC) "));
     //    Serial.println(value, DEC);
+	
+	// Store the configuration state we requested the CC1101 to be
+	currentConfig[regAddr] = value;	
   }
   
 
@@ -239,8 +242,7 @@ void CC1101::writeReg(byte regAddr, byte value)
   cc1101_Deselect();                    // Deselect CC1101
   delay(1);
 
-  // Store the configuration state we requested the CC1101 to be
-  currentConfig[regAddr] = value;
+
 
 
 }
@@ -506,9 +508,9 @@ void CC1101::setCCregs(void)
   //writeReg(CC1101_TEST0,  CC1101_DEFVAL_TEST0);
 
   // Send empty packet (which won't actually send a packet, but will flush the Rx FIFO only.)
-  //CCPACKET packet;
-  //packet.payload_size = 0;
-  //sendPacket(packet);
+  CCPACKET packet;
+  packet.payload_size = 0;
+  sendPacket(packet);
 }
 
 
@@ -1312,6 +1314,106 @@ void CC1101::setTxState(void)
   cmdStrobe(CC1101_STX);
 }
 
+/**
+ * setOutputPowerLevel
+ * 
+ * Sets the output power level, parameter passed is a dBm value wanted.
+ */
+void CC1101::setOutputPowerLeveldBm(int8_t dBm)
+{	
+    uint8_t pa_table_index 	= 4; // use entry 4 of the patable_power_XXX static array. i.e. dBm of 0
+	uint8_t pa_value 		= 0x50;
+
+	// Calculate the index offset of our pa table values
+    if      (dBm <= -30) pa_table_index = 0x00;
+    else if (dBm <= -20) pa_table_index = 0x01;
+    else if (dBm <= -15) pa_table_index = 0x02;
+    else if (dBm <= -10) pa_table_index = 0x03;
+    else if (dBm <= 0)   pa_table_index = 0x04;
+    else if (dBm <= 5)   pa_table_index = 0x05;
+    else if (dBm <= 7)   pa_table_index = 0x06;
+    else if (dBm <= 10)  pa_table_index = 0x07;
+	
+	// now pick the right PA table values array to 
+	switch (carrierFreq)
+	{
+		case CFREQ_922:
+
+		  if (serialDebug)
+			Serial.print(F("Using PA Table for 922Mhz frequency (Canada, US, Australia)"));
+		
+		  pa_value = patable_power_9XX[pa_table_index];
+		  break;
+		  
+		case CFREQ_433:
+
+		  if (serialDebug)
+			Serial.print(F("Using PA Table for 433Mhz frequency"));
+
+		  pa_value = patable_power_433[pa_table_index];
+		  break;
+		  
+		default:
+
+		  if (serialDebug)
+			Serial.print(F("Using PA Table for 868Mhz frequency (Europe)"));
+
+
+		  pa_value = patable_power_868[pa_table_index];
+		  break;
+		  
+	  }
+	  
+	Serial.print(F("Setting PATABLE0 value to: "));
+	Serial.println(pa_value, HEX);
+	  
+	// Now write the value
+	for (uint8_t i = 0; i < 8; i++)
+		writeReg(CC1101_PATABLE,  pa_value); // Set all the PA tables to the same value
+
+
+} // end of setOutputPowerLevel
+	
+	
+	
+
+/**
+	Print the PA Table Values to the Serial Console
+*/
+
+void CC1101::printPATable(void)
+{
+  //Serial.print(F("Printing PA Table Value:"));
+/*  Serial.println(readReg(CC1101_PARTNUM, CC1101_STATUS_REGISTER));
+  Serial.print(F("CC1101_VERSION "));
+  Serial.println(readReg(CC1101_VERSION, CC1101_STATUS_REGISTER));
+  Serial.print(F("CC1101_MARCSTATE "));
+  Serial.println(readReg(CC1101_MARCSTATE, CC1101_STATUS_REGISTER) & 0x1f);
+  */
+    
+  byte reg_value    = 0;  
+
+  Serial.println(F("--------- CC1101 PA Table Dump --------- "));
+  for (uint8_t i = 0; i < 8; i++)
+  {
+    Serial.print(F("PA Table entry "));
+    Serial.print(i);
+    Serial.print(F(" = "));
+
+	// reg_value = readStatusRegSafe(CC1101_PATABLE);
+    reg_value = readReg(CC1101_PATABLE, CC1101_CONFIG_REGISTER); // CC1101_CONFIG_REGISTER = READ_SINGLE_BYTE
+    Serial.println(reg_value, HEX);
+	
+    delay(10);
+  }
+  
+} // end printPATable
+
+
+
+/**
+	Print the Configuration Values and Check Them
+*/
 bool CC1101::printCConfigCheck(void)
 {
   Serial.print(F("CC1101_PARTNUM "));
@@ -1330,13 +1432,13 @@ bool CC1101::printCConfigCheck(void)
   Serial.println(F("--------- CC1101 Register Configuration Dump --------- "));
   for (uint8_t i = 0; i < NUM_CONFIG_REGISTERS; i++)
   {
-    Serial.print("Reg ");
+    Serial.print(F("Reg "));
     strcpy_P(reg_name, CC1101_CONFIG_REGISTER_NAME[i]);
     Serial.print(reg_name);
-    Serial.print(" ( ");
+    Serial.print(F(" ( "));
     Serial.print(i, HEX);
-    Serial.print(" ) ");
-    Serial.print(" = ");
+    Serial.print(F(" ) "));
+    Serial.print(F(" = "));
 
     reg_value = readReg(i, CC1101_CONFIG_REGISTER);
     Serial.println(reg_value, HEX);
@@ -1352,15 +1454,19 @@ bool CC1101::printCConfigCheck(void)
   }
 
   if (reg_check_pass) {
-    Serial.println(F("PASS: Config reg values as expected."));
+    Serial.println(F("PASS: Config reg values are as expected."));
   } else {
-    Serial.println(F("***FAILURE: Config reg values NOT as expected.***"));
+    Serial.println(F("*** WARNING: Config reg values NOT as expected. Check these! ***"));
   }
 
   return reg_check_pass;
-}
+  
+} // end printCConfigCheck
 
-
+/**
+	Read the ChipCon Status Byte returned as a by-product of SPI communications.
+	Not quite sure this is reliable however.
+*/
 void CC1101::readCCStatus(byte status)
 {
   /*
@@ -1421,7 +1527,9 @@ void CC1101::readCCStatus(byte status)
   }
 }
 
-
+/**
+	Convert the current CC status into English and print to the console.
+*/	
 void CC1101::printCCState(void)
 {
 
@@ -1440,6 +1548,12 @@ void CC1101::printCCState(void)
   Serial.println("");
 }
 
+/**
+	Print the CC1101'sTX and RX FIFO Status in English to Serial
+	
+	Useful in library development to check when and how the CC has got into an overflow
+	or underflow state - which seems to be hard to recover from.
+*/	
 void CC1101::printCCFIFOState(void)
 {
 
@@ -1452,7 +1566,12 @@ void CC1101::printCCFIFOState(void)
 }
 
 
-
+/**
+	Print the CC1101's MarcState
+	
+	Useful in library development to check when and how the CC has got into an overflow
+	or underflow state - which seems to be hard to recover from.
+*/	
 void CC1101::printMarcstate(void)
 {
 

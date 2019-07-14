@@ -7,7 +7,7 @@
 
 // -----------------------------------------------------------------
 // Don't change this - http://www.ti.com/lit/an/swra112b/swra112b.pdf
-#define NUM_CONFIG_REGISTERS      0x2F  //47 registers
+#define NUM_CONFIG_REGISTERS		0x2F  //47 registers
 // -----------------------------------------------------------------
 
 /**
@@ -129,6 +129,7 @@ inline void interupt_packetReceived() {
  * value FREND0.PA_POWER). The table is
  * written and read from the lowest setting (0) to
  * the highest (7), one byte at a time.
+ * Note: However we only write to the first entry only.
  */
 #define CC1101_PATABLE           0x3E        // PATABLE address
 #define CC1101_TXFIFO            0x3F        // TX FIFO address
@@ -279,6 +280,17 @@ static const char CC1101_CONFIG_REGISTER_NAME[NUM_CONFIG_REGISTERS][16] PROGMEM 
  */  
 static uint8_t currentConfig[NUM_CONFIG_REGISTERS];
 
+
+/**
+ * CC1101 PA (TX Output Power) TABLE
+ * Based on Design Note DN013 (swra151a.pdf), but also https://github.com/SpaceTeddy/CC1101/blob/master/cc1100_arduino.cpp
+ * Note: We don't actually bother populating all 8 PA Table entries on the CC1101, we only set the PATABLE0 to the relevant
+ *       value below according to the configured frequency and requested dBm (aka. This is a config lookup matrix of sorts).
+ */
+                            //Patable index: -30  -20  -15  -10    0    5    7   10 dBm
+static uint8_t patable_power_433[] = {0x6C,0x1C,0x06,0x3A,0x51,0x85,0xC8,0xC0};
+static uint8_t patable_power_868[] = {0x03,0x17,0x1D,0x26,0x50,0x86,0xCD,0xC0};
+static uint8_t patable_power_9XX[] = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
 
 
 /**
@@ -682,11 +694,28 @@ class CC1101
      * Enter Tx state
      */
     void setTxState(void);
+	
+    /**
+     * setOutputPowerLeveldBm
+     * 
+     * Sets the output power level, parameter passed is a dBm value wanted.
+     */
+    void setOutputPowerLeveldBm(int8_t dBm);	
+	
+	
+    /**
+     * printPATable
+     * 
+     * Print the current PA Table Values
+     */
+    void printPATable(void);	
+	
     
     /**
-     * printConfig
+     * printCConfigCheck
      * 
-     * Pretty self explanitory really
+     * Print to console the CC1101's current config, also check for obvious signs that something is wrong. 
+	 * If things aren't looking good, return false.
      */
     bool printCConfigCheck(void);
 
