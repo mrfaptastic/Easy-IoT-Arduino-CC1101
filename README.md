@@ -79,3 +79,7 @@ Recieved Message: Message #253 from device 64. Hello 32, I hope this messagge ge
 Sending message: Message #13 from device 32. Hello 64, I hope this message gets to you well and good. This message is approx 130 characters in length.
 Took 203 milliseconds to complete sendChars()
 ```
+
+# Credits
+
+This library builds upon [veonik's](https://github.com/veonik/arduino-cc1101) CC1101 library as a base, which itself it built upon the panStamp library.
