@@ -1,4 +1,4 @@
-# Easy-ESP-IoT-Arduino-CC1101-LORA
+# Easy-IoT-Arduino-CC1101-LORA
 
 This is an easy to use Arduino CC1101 library (working example) to be able to connect a [Texas Instruments CC1101](http://www.ti.com/product/CC1101) to a ESP32 or ESP8266.
 
