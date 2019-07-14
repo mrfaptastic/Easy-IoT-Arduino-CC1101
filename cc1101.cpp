@@ -1158,7 +1158,7 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
 
     packet->payload_size = 0;
 
-    Serial.println(F("RX is in overflow sadly. Flushing."));
+    Serial.println(F("RX was in overflow. Flushing."));
     
     return packet->payload_size;   
  }
@@ -1275,7 +1275,7 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
   rxBytes     = rxBytes & BYTES_IN_FIFO;
   rxOverflow  = rxBytes & OVERFLOW_IN_FIFO;
 
-  if ( !rxBytes )
+  if ( rxBytes != 0 )
   {
     Serial.print(F("Error: Bytes left over in RX FIFO: "));
     Serial.println(rxBytes, DEC);  
@@ -1416,11 +1416,13 @@ void CC1101::printPATable(void)
 */
 bool CC1101::printCConfigCheck(void)
 {
-  Serial.print(F("CC1101_PARTNUM "));
+  Serial.println(F("--------- Checking Key CC1101 h/w values --------- "));
+  
+  Serial.print(F("CC1101_PARTNUM: "));
   Serial.println(readReg(CC1101_PARTNUM, CC1101_STATUS_REGISTER));
-  Serial.print(F("CC1101_VERSION "));
+  Serial.print(F("CC1101_VERSION [Expect 20]: "));
   Serial.println(readReg(CC1101_VERSION, CC1101_STATUS_REGISTER));
-  Serial.print(F("CC1101_MARCSTATE "));
+  Serial.print(F("CC1101_MARCSTATE: "));
   Serial.println(readReg(CC1101_MARCSTATE, CC1101_STATUS_REGISTER) & 0x1f);
 
   // Register validation check
