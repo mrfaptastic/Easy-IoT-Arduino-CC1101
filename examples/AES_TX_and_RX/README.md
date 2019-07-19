@@ -8,6 +8,10 @@ This is an example of using the Easy-IoT-Arduino-CC1101-LORA library to send cip
 
 Wire up the CC1101 to the ESP as mentioned in the main README. This example also makes use of a generic [OLED Display](https://www.aliexpress.com/item/32767499263.html?spm=a2g0s.9042311.0.0.27424c4dBKzhaz) from Aliexpress to receive a message.
 
+```
+U8G2_SSD1306_128X64_NONAME_F_SW_I2C u8g2(U8G2_R0, /* clock=*/ D1, /* data=*/ D3, /* reset=*/ U8X8_PIN_NONE); // I2C: Use pin D1 for Clock and D3 for Data
+```
+
 ![Wiring](wiring.jpg)
 
 ## Use
@@ -19,7 +23,7 @@ In the code you'll need to set the shared key to something different.
 byte *key = (unsigned char*)"0123456789010123";
 ```
 
-The use the serial monitor to send a message to another device with the OLED attached.
+Then use the serial monitor to send a message to another device with the OLED attached.
 
 ![Wiring](serial.jpg)
 
