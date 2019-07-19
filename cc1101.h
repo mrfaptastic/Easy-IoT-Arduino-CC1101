@@ -424,6 +424,8 @@ class CC1101
     uint8_t syncWord[2];
     uint8_t devAddress;    
     bool    serialDebug; 
+	
+	uint16_t receivedStreamSize = 0; // Number of bytes or chars recieved
 
     // For period state checking
     unsigned long last_CCState_check = 0;
@@ -491,8 +493,8 @@ class CC1101
     
   public:    
 
-    void attachGDO0Interrupt(void);
-    void detachGDO0Interrupt(void);   
+    ICACHE_RAM_ATTR void attachGDO0Interrupt(void);
+    ICACHE_RAM_ATTR void detachGDO0Interrupt(void);   
 
     CC1101(void);
 
@@ -636,7 +638,8 @@ class CC1101
      * Sending Messages or Data
      */
     bool sendChars(const char * data, uint8_t dst_address=BROADCAST_ADDRESS);
-    //bool sendBytes(byte * data);    
+    bool sendBytes(byte * data,  uint16_t size, uint8_t dst_address=BROADCAST_ADDRESS);  
+    uint16_t getStreamSize(void);	
 
     /**
      * Returns pointer to RX buffer

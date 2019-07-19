@@ -168,7 +168,7 @@ bool CC1101::checkCC(void)
 } // check CC
 
 /* Attach the interrupt from CC1101 when packet recieved */
-void CC1101::attachGDO0Interrupt(void)
+ICACHE_RAM_ATTR void CC1101::attachGDO0Interrupt(void)
 {
   if (serialDebug)
     Serial.println(F("Attaching Interrupt to GDO0"));
@@ -176,7 +176,7 @@ void CC1101::attachGDO0Interrupt(void)
   attachInterrupt(CC1101_GDO0, interupt_packetReceived, FALLING);
 }
 
-void CC1101::detachGDO0Interrupt(void)
+ICACHE_RAM_ATTR void CC1101::detachGDO0Interrupt(void)
 {
   if (serialDebug)
     Serial.println(F("Detaching Interrupt to GDO0"));
@@ -632,22 +632,56 @@ void CC1101::setPowerDownState()
 */
 bool CC1101::sendChars(const char * data, uint8_t cc_dest_address)
 {
+	
+  uint16_t stream_length       = strlen(data) + 1;   // We also need to include the 0 byte at the end of the string
+
+  return sendBytes( (byte *) data, stream_length, cc_dest_address);
+}
+
+
+/**
+   sendBytes
+
+   send a stream of BYTES (unsigned chars), could be greater than one CC1101 underlying packet,
+   payload limit (STREAM_PKT_MAX_PAYLOAD_SIZE) if so, split it up and do what is required.
+*/
+bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_address)
+{
   unsigned long start_tm; start_tm = millis();
   bool sendStatus = false;
-    
+  
+/*
+	Serial.println("");
+	// HACK: REMOVE - FOR VALIDATION TESTING ONLY
+	Serial.println("");
+	Serial.print(F("HEX content of data to send:"));
+	for (int i = 0; i < stream_length; i++)
+	{
+		Serial.printf("%02x", data[i]);
+	}	 
+	Serial.println("");
+		Serial.print(F("CHAR content of data to send:"));
+	for (int i = 0; i < stream_length; i++)
+	{
+		Serial.printf("%c", data[i]);
+	}	
+	Serial.println("");  
+*/
+	
   detachGDO0Interrupt(); // we don't want to get interrupted at this important moment in history
 
   CCPACKET packet; // create a packet
 
-  uint16_t stream_length       = strlen(data) + 1;   // We also need to include the 0 byte at the end of the string
   uint16_t unsent_stream_bytes = stream_length;
 
   if (stream_length > MAX_STREAM_LENGTH) // from ccpacket.h
   {
-    Serial.println(F("Message too big to send!"));
+    Serial.println(F("Too many bytes to send!"));
     return false;
   }
 
+  Serial.print(F("Sending byte stream of ")); Serial.print(stream_length, DEC); Serial.println(F(" bytes in length."));
+  
   uint8_t  stream_pkt_seq_num = 1;
   uint8_t  stream_num_of_pkts = 0; // we have to send at least one!
 
@@ -667,40 +701,42 @@ bool CC1101::sendChars(const char * data, uint8_t cc_dest_address)
     packet.stream_num_of_pkts  		= stream_num_of_pkts;
     packet.stream_pkt_seq_num  		= stream_pkt_seq_num++;
 
-    // copy the next pile of characters
-    //strncpy( (char *)packet.data, &data[stream_length - unsent_stream_bytes], stream_pkt_data_len);
-
-    // make sure we flush the contents of the packet (otherwise we might append crap from the last packet in the stream 
+    // make sure we flush the contents of the packet (otherwise we might append crap from the previous packet in the stream 
     // if this packet is smaller (i.e. the last packet). 
-    // Not a big issue though as the reciever should only read up until payload_size)
+    // Not a big issue though as the receiver should only read up until payload_size)
     memset(packet.payload, 0x00, sizeof(packet.payload));  
     
-    int start_pos = (stream_length == unsent_stream_bytes) ? 0:(stream_length-1-unsent_stream_bytes); // because array positions are x-1
-    memcpy( (char *)packet.payload, &data[start_pos], payload_size); // cast as char
+    uint16_t start_pos = stream_length - unsent_stream_bytes; // (stream_length == unsent_stream_bytes) ? 0:(stream_length-1-unsent_stream_bytes); // because array positions are x-1
+	
+	//Serial.printf("Packet Start Pos: %d\n", start_pos);
+	
+    memcpy( (byte *)packet.payload, &data[start_pos], payload_size); // cast as char
+/*	
+	// HACK: REMOVE - FOR VALIDATION TESTING ONLY
 
-
-    if (serialDebug)
-    {
-      Serial.printf("Max usable stream packet space: %d\n", STREAM_PKT_MAX_PAYLOAD_SIZE);
-      Serial.printf("packet.payload_size (payload size only, no overheads): %d\n",        packet.payload_size);
-      Serial.printf("packet.dst_address: %d\n",   packet.cc_dest_address);
-      Serial.printf("packet.stream.stream_num_of_pkts: %d\n",   packet.stream_num_of_pkts);
-      Serial.printf("packet.stream.stream_pkt_seq_num: %d\n",   packet.stream_pkt_seq_num);
-      yield();
-    } // serialDebug
-
+	Serial.println("");
+	
+	Serial.print("HEX content of packet to send:");
+	for (uint8_t i = 0; i < packet.payload_size; i++)
+	{
+		Serial.printf("%02x", packet.payload[i]);
+	}	
+	Serial.println("");
+*/	
+	
     // Try and send the packet stream.
-    int tries = 0; 
+    uint8_t tries = 0; 
+	
     // Check that the RX state has been entered
     while (tries++ < 3 && ((sendStatus = sendPacket(packet)) != true) )
     {
-      Serial.println(F("Failed to send packet. Retrying. "));
-      delay(187); // random delay interval
+      Serial.println(F("Failed to send byte packet. Retrying. "));
+      delay(99); // random delay interval
     }
 
     if ( !sendStatus )
     {
-      Serial.println(F("Failed to send character stream. Existing."));
+      Serial.println(F("Failed to send byte stream. Existing."));
       break; // Get out of this 
     }
 
@@ -713,7 +749,7 @@ bool CC1101::sendChars(const char * data, uint8_t cc_dest_address)
 
   attachGDO0Interrupt();
   
-  Serial.printf("Took %d milliseconds to complete sendChars()\n", (millis() - start_tm));  
+  Serial.printf("Took %d milliseconds to complete sendBytes()\n", (millis() - start_tm));  
 
   return sendStatus;
 }
@@ -941,7 +977,12 @@ bool CC1101::sendPacket(CCPACKET packet)
    dataAvailable
 
    Check the status of the packetReceived and do some processing
-   to reconstruct the stream if required.
+   to reconstruct the multi-packet 'stream' if required.
+   
+   There is no state machine here so if multiple packets come from
+   different sources at once for multiple multi-packet streams,
+   things will break and/or get corrupted very easily.
+
 */
 bool CC1101::dataAvailable(void)
 { 
@@ -960,11 +1001,11 @@ bool CC1101::dataAvailable(void)
 
   if (receivePacket(&packet) > 0)
   {
-    Serial.println(F("Received packet..."));
+    Serial.println(F("Processing packet in dataAvailable()..."));
 
     if (!packet.crc_ok)
     {
-      Serial.println(F("crc not ok"));
+      Serial.println(F("CRC not ok!"));
     }
 	
     Serial.print(F("lqi: ")); 	Serial.println(decodeCCLQI(packet.lqi));
@@ -979,10 +1020,10 @@ bool CC1101::dataAvailable(void)
       Serial.print(F("stream_pkt_seq_num: "));
       Serial.println(packet.stream_pkt_seq_num, DEC);
       
-		  Serial.print(F("payload_size: "));
-		  Serial.println(packet.payload_size, DEC);
-		  Serial.print(F("data: "));
-		  Serial.println((const char *) packet.payload);
+	  Serial.print(F("Payload_size: "));
+	  Serial.println(packet.payload_size, DEC);
+	  Serial.print(F("Data: "));
+	  Serial.println((const char *) packet.payload);
 
       // This data stream was only one packets length (i.e. < 57 bytes or so)
       // therefore we just copy to the buffer and we're all good!
@@ -993,6 +1034,10 @@ bool CC1101::dataAvailable(void)
         // We got the first packet in the stream so flush the buffer...
         memset(stream_multi_pkt_buffer, 0, sizeof(stream_multi_pkt_buffer)); // flush
         memcpy(stream_multi_pkt_buffer, packet.payload, packet.payload_size);
+		
+		Serial.println(F("Single packet stream has been received."));
+		
+		receivedStreamSize = packet.payload_size;
 
         _streamReceived = true;
       }
@@ -1004,13 +1049,21 @@ bool CC1101::dataAvailable(void)
 				memset(stream_multi_pkt_buffer, 0, sizeof(stream_multi_pkt_buffer)); // flush
 			
 			// Copy to stream_multi_pkt_buffer to a limit of MAX_STREAM_LENGTH-1
-      unsigned int buff_start_pos = packet.stream_pkt_seq_num-1;
-      buff_start_pos *= STREAM_PKT_MAX_PAYLOAD_SIZE;
+			unsigned int buff_start_pos = packet.stream_pkt_seq_num-1;
+			buff_start_pos *= STREAM_PKT_MAX_PAYLOAD_SIZE;
       
 			unsigned int buff_end_pos 	= buff_start_pos + (unsigned int) packet.payload_size;
 			
+			// HACK: REMOVE
+			Serial.print("HEX content of packet:");
+			for (int i = 0; i < packet.payload_size; i++)
+			{
+				Serial.printf("%02x", packet.payload[i]);
+			}
+
+			
 		//	if (serialDebug)
-				Serial.printf("Recieved stream packet %d of %d. Buffer start position: %d, end position %d, payload size: %d\r\n", (int)packet.stream_pkt_seq_num, (int)packet.stream_num_of_pkts, (int)buff_start_pos, (int)buff_end_pos, (int) packet.payload_size);
+			Serial.printf("Received stream packet %d of %d. Buffer start position: %d, end position %d, payload size: %d\r\n", (int)packet.stream_pkt_seq_num, (int)packet.stream_num_of_pkts, (int)buff_start_pos, (int)buff_end_pos, (int) packet.payload_size);
 
 			if ( buff_end_pos > MAX_STREAM_LENGTH)
 			{
@@ -1025,7 +1078,8 @@ bool CC1101::dataAvailable(void)
 				if (packet.stream_num_of_pkts ==  packet.stream_pkt_seq_num)
 				{
            
-           Serial.println("STREAM HAS BEEN RECIEVED IN FULL");
+					Serial.printf("Multi-packet stream of %d bytes hase been received in full!\n", buff_end_pos);
+					receivedStreamSize = buff_end_pos;
 					_streamReceived = true;
 				}
 				
@@ -1049,7 +1103,7 @@ bool CC1101::dataAvailable(void)
 /**
    receiveChars
 
-   Returns an array to the RX buffer.
+   Returns a char pointer to the RX buffer.
 
 */
 char * CC1101::receiveChars(void)
@@ -1058,14 +1112,22 @@ char * CC1101::receiveChars(void)
 }
 
 /**
-   receiveChars
+   receiveBytes
 
-   Returns an array to the RX buffer.
+   Returns a byte pointer to the RX buffer.
 
 */
 byte * CC1101::receiveBytes(void)
 {
   return (byte * ) stream_multi_pkt_buffer;
+}
+
+/* Get the number of bytes in the stream.
+   This is always <= MAX_STREAM_LENGTH
+ */
+uint16_t CC1101::getStreamSize(void)
+{
+	return receivedStreamSize;
 }
 
 
@@ -1095,7 +1157,8 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
 
   start_tm = millis();
 
-  Serial.println(F("* Packet Received"));
+  Serial.print(F("* Packet Received on channel "));
+  Serial.println(channel, DEC);
 
 #ifdef ENABLE_BUILTIN_LED
   digitalWrite(LED_BUILTIN, LOW);  
@@ -1174,7 +1237,7 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
     memset(cc1101_rx_tx_fifo_buff, 0x00, sizeof(cc1101_rx_tx_fifo_buff)); // flush the temporary array.
 //    readBurstReg(cc1101_rx_tx_fifo_buff, CC1101_RXFIFO, 63); // Can't use readburst due to bizzare SPI issues
 
-    // Copy contents of FIFO in the buffer from CC1101 
+    // Copy contents of FIFO in the buffer from CC1101 one byte at a time
     for (int i = 0; i< CCPACKET_REC_SIZE; i++)
         cc1101_rx_tx_fifo_buff[i] = readConfigReg(CC1101_RXFIFO);
             
@@ -1200,7 +1263,7 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
      packet->payload_size         = cc1101_rx_tx_fifo_buff[1]; // byte 2
 
      if (packet->cc_dest_address == BROADCAST_ADDRESS)
-      Serial.println(F("Received broadcast packet"));
+      Serial.println(F("* Received broadcast packet"));
      
     if (serialDebug)
     {
