@@ -60,11 +60,11 @@ static  bool packetReceived;
 /**
  * Global functions for packet and stream interrupts
  */
-inline void interupt_streamReceived() {
+inline void ICACHE_RAM_ATTR interupt_streamReceived() {
     streamReceived = true;
 }
 
-inline void interupt_packetReceived() {
+inline void ICACHE_RAM_ATTR interupt_packetReceived() {
     packetReceived = true;
 }
 
@@ -493,8 +493,8 @@ class CC1101
     
   public:    
 
-    ICACHE_RAM_ATTR void attachGDO0Interrupt(void);
-    ICACHE_RAM_ATTR void detachGDO0Interrupt(void);   
+    void attachGDO0Interrupt(void);
+    void detachGDO0Interrupt(void);   
 
     CC1101(void);
 

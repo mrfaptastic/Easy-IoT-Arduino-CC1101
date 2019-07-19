@@ -168,7 +168,7 @@ bool CC1101::checkCC(void)
 } // check CC
 
 /* Attach the interrupt from CC1101 when packet recieved */
-ICACHE_RAM_ATTR void CC1101::attachGDO0Interrupt(void)
+void CC1101::attachGDO0Interrupt(void)
 {
   if (serialDebug)
     Serial.println(F("Attaching Interrupt to GDO0"));
@@ -176,7 +176,7 @@ ICACHE_RAM_ATTR void CC1101::attachGDO0Interrupt(void)
   attachInterrupt(CC1101_GDO0, interupt_packetReceived, FALLING);
 }
 
-ICACHE_RAM_ATTR void CC1101::detachGDO0Interrupt(void)
+void CC1101::detachGDO0Interrupt(void)
 {
   if (serialDebug)
     Serial.println(F("Detaching Interrupt to GDO0"));
