@@ -1,4 +1,4 @@
-# AES 128 Transmit and Recieve
+# AES 128 Transmit and Receive
 
 This is an example of using the Easy-IoT-Arduino-CC1101-LORA library to send cipher-text messages over the air. Don't want to use a mobile network and the government to hear your conversations? Well, I'm not sure this is the solution! 
 
