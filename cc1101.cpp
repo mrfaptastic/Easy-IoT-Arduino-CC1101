@@ -1010,6 +1010,8 @@ bool CC1101::dataAvailable(void)
 	
     Serial.print(F("lqi: ")); 	Serial.println(decodeCCLQI(packet.lqi));
     Serial.print(F("rssi: ")); 	Serial.print(decodeCCRSSI(packet.rssi)); Serial.println(F("dBm"));
+	
+	receivedRSSI = decodeCCRSSI(packet.rssi);
 
 
     if (packet.crc_ok && packet.payload_size > 0)

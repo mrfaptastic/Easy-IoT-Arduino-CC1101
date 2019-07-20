@@ -426,6 +426,7 @@ class CC1101
     bool    serialDebug; 
 	
 	uint16_t receivedStreamSize = 0; // Number of bytes or chars recieved
+	int      receivedRSSI = 0; // in dBm
 
     // For period state checking
     unsigned long last_CCState_check = 0;
@@ -640,6 +641,9 @@ class CC1101
     bool sendChars(const char * data, uint8_t dst_address=BROADCAST_ADDRESS);
     bool sendBytes(byte * data,  uint16_t size, uint8_t dst_address=BROADCAST_ADDRESS);  
     uint16_t getStreamSize(void);	
+		
+	inline int getLastRSSI(void)
+	{ return receivedRSSI; }; // get the RSSI of the last packet to be received
 
     /**
      * Returns pointer to RX buffer
