@@ -1,0 +1,30 @@
+ {
+  "name": "Easy ESP Arduino IoT with CC1101",
+  "keywords": "iot, esp8266, esp32, cc1101, communication, transmit, receive, frequency, mesh",
+  "description": "An easy to use library to send and receive messages between IoT devices / ESP8266's or ESP32's using the Texas Instruments CC1101 Low-Power Sub-1GHz RF Transceiver",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mrfaptastic/Easy-IoT-Arduino-CC1101-LORA.git"
+  },
+  "authors": {
+    "name": "Faptastic",
+    "url": "https://github.com/mrfaptastic/"
+  },
+  "version": "1.0.0",
+  "frameworks": "arduino",
+  "platforms": "esp8266, esp32",
+  "examples": [
+    "examples/TX_and_RX/*.ino",
+    "examples/TX_and_RX/*.cpp",
+    "examples/TX_and_RX/*.h",
+	
+    "examples/RX_from_Sensors/*.ino",
+    "examples/RX_from_Sensors/*.cpp",
+    "examples/RX_from_Sensors/*.h",	
+	
+    "examples/AES_TX_and_RX/*.ino",
+    "examples/AES_TX_and_RX/*.cpp",
+    "examples/AES_TX_and_RX/*.h"	
+	
+  ]
+}

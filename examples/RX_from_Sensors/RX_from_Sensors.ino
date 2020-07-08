@@ -230,7 +230,7 @@ void loop()
         sprintf(output, "Packet %d ", counter++);
         //radio.sendChars(output);
       
-        radio.sendChars("~AGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG :-)~"); // 'B' in ascii
+        radio.sendChars("----------------------------------"); 
     
         lastSend = now + sendDelay;
     }
