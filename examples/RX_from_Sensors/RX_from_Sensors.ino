@@ -1,35 +1,12 @@
-#include <Arduino.h>
-//#include "cc1101_custom_config.h"
 #include "cc1101.h"
 
-#include <U8g2lib.h>          // Library to control the 128x64 Pixel OLED display with SH1106 chip  https://github.com/olikraus/u8g2  
+/*******************************************************************
+ * Radio and interrupt configuration
+ */
 
-
-// LED STUFF
-#include <FastLED.h>
-
-#define LED_PIN     D1
-
-// Information about the LED strip itself
-#define NUM_LEDS    26
-#define CHIPSET     WS2812B
-#define COLOR_ORDER GRB
-CRGB leds[NUM_LEDS];
-
-#define BRIGHTNESS  128
-
-
-// A color palette for the boot-up sequence.
-DEFINE_GRADIENT_PALETTE( myCustom2z ) 
-{
-      0,   0,   0,   255,   // Black  
-      80,   0,   255,   0,   // Black  
-      150,   255,   128,  0,   // Black  
-      200,  128,   0,   0,   // Black  
-      255,  255,   0,   0   // Black  
-};// and back to Red
-
-
+#define RADIO_CHANNEL             16
+#define THIS_DEVICE_ADDRESS       22
+#define DESINATION_DEVICE_ADDRESS BROADCAST_ADDRESS // Broadcast
 
 /** 
  *  NOTE: On ESP8266 can't use D0 for interrupts on WeMos D1 mini.
@@ -43,14 +20,20 @@ DEFINE_GRADIENT_PALETTE( myCustom2z )
  *
  */
 
-// Create Class Instanced
+#ifdef ESP32
+  #define INTERRUPT_PIN 13
+#else
+  #define INTERRUPT_PIN D2
+#endif  
+
+/*******************************************************************/
+
+// Sketch output
+//#define SEND_STUFF 1  // have this script send things as well
+//#define SHOW_CC_STATUS 1
+
+
 CC1101 radio;
-
-
-// 128x64 OLED:     https://www.aliexpress.com/item/1PCS-White-color-0-96-inch-128X64-OLED-Display-Module-For-arduino-0-96-IIC-SPI/32767499263.html
-// https://github.com/olikraus/u8g2/wiki/u8g2setupcpp
-U8G2_SSD1306_128X64_NONAME_F_SW_I2C u8g2(U8G2_R0, /* clock=*/ D3, /* data=*/ D1);   
-
 
 unsigned long lastSend = 0;
 unsigned int sendDelay = 10000;
@@ -60,192 +43,158 @@ unsigned int statusDelay = 5000;
 
 String rec_payload;
 
+
+/*****************************************************************/
+//https://create.arduino.cc/projecthub/Marcazzan_M/how-easy-is-it-to-use-a-thermistor-e39321
+/*thermistor parameters:
+ * RT0o: 10 000 Ω
+ * B: 3977 K +- 0.75%
+ * T0:  25 CA
+ * +- 5%
+ */
+
+//These values are in the datasheet
+#define RT0 100000   // Ω
+#define B 3977      // K
+//--------------------------------------
+
+
+#define VCC 3.3    //Supply voltage
+#define R 160000  //R=10KΩ
+
+
+//Variables
+float RT, VR, ln, TXX, T0o, VRT;
+
+
+
+
+
 void setup() 
 {
+    T0o = 25 + 273.15;                 //Temperature T0 from datasheet, conversion from Celsius to kelvin
+    
     // Start Serial
-    delay (2000);
+    delay (100);
     Serial.begin(115200);
     delay (100);
     Serial.println("Starting...");
 
-    // LEDs
-    FastLED.addLeds<CHIPSET, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection( TypicalSMD5050 );
-    FastLED.setBrightness( BRIGHTNESS );  
-
-    fill_solid(leds, NUM_LEDS, CRGB(0,0,0));
-
-    FastLED.show();
-    FastLED.delay(8);      
-
-    
-    // Start OLED
-    // Setup and start OLED display
-   // u8g2.begin();   
-  //  u8g2.clearBuffer();          // clear the internal memory
-
-   // u8g2.setFont(u8g2_font_7x14B_tr);         // choose a small font for status dispay 
-  //  u8g2.drawStr(0,11,"Loading Config..."); 
+    //radio.enableSerialDebug();
 
     // Start RADIO
-    //if ( !radio.begin(cc1101_GFSK_250_kb_testing_WIP_L0L) ) // channel 16! Whitening enabled 
-    if ( !radio.begin(CFREQ_868, KBPS_250, /* channel num */ 16, /* address */ 0) ) // channel 16! Whitening enabled 
+    while ( !radio.begin(CFREQ_868, KBPS_250, /* channel num */ 16, /* address */ THIS_DEVICE_ADDRESS, INTERRUPT_PIN /* Interrupt */) ) // channel 16! Whitening enabled 
     {
-    //  u8g2.setFont(u8g2_font_profont22_tf);  
-    //  u8g2.drawStr(6,32, "No CC1101!"); 
-    //  u8g2.sendBuffer();     
-
-      // Pause here
-      while(1) yield();
+        yield();
     }
     
-    //radio.setDevAddress(0x40); // '@' in ascii
     radio.printCConfigCheck();
-
     Serial.println(F("CC1101 radio initialized."));
-/*
-    u8g2.setFont(u8g2_font_profont22_tf);  
-    u8g2.drawStr(6,32, "CC1101 OK");  
-    u8g2.setFont(u8g2_font_7x14B_tr); 
-    u8g2.drawStr(0,48,"Listening."); 
-    u8g2.setFont(u8g2_font_6x10_tf); 
-    //u8g2.drawStr(0,64,"v1.3"); 
-    u8g2.sendBuffer();     
-*/
     delay(1000);     
+
 
     rec_payload.reserve(100);
 
 }
 
-
 int   counter = 0;
 char  output[64] = {0};
 char * return_data;
 
-// Values from sensors
-float battery_voltage; 
-int device_id;
-int temp_direct_raw;
-int temp_ambient_raw;
-int movement; 
-
-// Constants
-const float temp_direct_degree_movement  = 24;
-const float temp_ambient_degree_movement = 57;
-
-// Calculated 
-float temp_direct_calculated;
-float temp_ambient_calculated;
-
-void FillLEDsFromPaletteColors( uint8_t colorIndex, uint8_t num_leds)
-{
-    uint8_t brightness = 128;
-     CRGBPalette16 bootPalette = myCustom2z;  // For booting only.    
-    for( int i = 0; i < num_leds; i++) {
-        leds[i] = ColorFromPalette( bootPalette , colorIndex, brightness, LINEARBLEND);
-        colorIndex += 8;
-    }
-
-    for( int i = num_leds; i < NUM_LEDS; i++) {
-        leds[i] = CRGB::Black;
-    }    
-
-      FastLED.show();
-}
-
-
-
 void loop() 
 {
     unsigned long now = millis();
-
-
     
     if ( radio.dataAvailable() )
     { 
       
         /*
-         * data: D|01|1111|0518|1668|0503|33
-         */                      
-        rec_payload  = String(radio.receiveChars()); // pointer to memory location of start of string
-        device_id    = rec_payload.substring(2,4).toInt();        
-        movement     = rec_payload.substring(5,10).toInt();
+         * Data format from CC1110:
+         *  V|33|D|000907|000393|000138|002047|002047|002047|001421|0
+         *  V|33|D|000902|000393|000138|002047|002047|002047|001423|0
+         */                               
+        rec_payload  = String(radio.getChars()); // pointer to memory location of start of string
+        //Serial.print("Payload size recieved: "); Serial.println(radio.getSize());
+        Serial.println(rec_payload);
 
-        battery_voltage = (float) rec_payload.substring(25,27).toInt(); 
-        temp_direct_raw     = rec_payload.substring(10,15).toInt()*(battery_voltage/33);
-        temp_ambient_raw    = rec_payload.substring(15,20).toInt()*(battery_voltage/33); 
+        byte *payload = radio.getBytes();
 
+        float battery           =  rec_payload.substring(2,4).toInt();
+        Serial.print("battery: " ); Serial.println(battery);        
 
-        Serial.print("The device is: ");
-        Serial.println(device_id);
+        int movement           =  rec_payload.substring(8,14).toInt();
+        //Serial.print("movement: " ); Serial.println(movement);
+        
+        int thermopile_surface_ir = rec_payload.substring(15,21).toInt();
+        //Serial.print("thermopile_surface_ir: "); Serial.println(thermopile_surface_ir);  
 
-        Serial.print("The PIR value is: ");
-        Serial.println(movement);   
+        int thermistor_ambient_temp = rec_payload.substring(50,56).toInt();
+        //Serial.print("thermistor_ambient_temp: "); Serial.println(thermistor_ambient_temp);  
 
-        Serial.print("The IR direct temp value is: ");
-        Serial.println(temp_direct_raw);        
+        VRT  = thermistor_ambient_temp;     // Acquisition analog value of VRT
+        VRT  = (3.30 / 1023.00) * VRT;      // Conversion to voltage
+        VR   = VCC - VRT;
+        RT   = VRT / (VR / R);              // Resistance of RT
+      
+        ln = log(RT / RT0);
+        TXX = (1 / ((ln / B) + (1 / T0o))); //Temperature from thermistor
+      
+        TXX = TXX - 273.15;                 //Conversion to Celsius
+      
+        Serial.print("Temperature:");
+        Serial.print("\t");
+        Serial.print(TXX);
+        Serial.print("C\t\t");
+        Serial.print(TXX + 273.15);        //Conversion to Kelvin
+        Serial.print("K\t\t");
+        Serial.print((TXX * 1.8) + 32);    //Conversion to Fahrenheit
+        Serial.println("F");
 
-        Serial.print("The IR ambient temp value is: ");
-        Serial.println(temp_ambient_raw);        
-             
-        Serial.print("Battery Voltage: ");
-        Serial.println(battery_voltage);   
+        // Infrared camer / Thermopile attempt
+        float ir_temp = thermopile_surface_ir*(battery/33); // normalise to 3.3 volts due to the ir value going up as battery deplets
+        ir_temp /= (float)4.95; // guestimate
 
-        Serial.print("The (calculated) IR direct temp: ");      
-        temp_direct_calculated =  temp_direct_raw/temp_direct_degree_movement;
-        Serial.println(temp_direct_calculated);        
+        Serial.print("IR temperature:");
+        Serial.print("\t");
+        Serial.println(ir_temp);      
+        
+ /*
+// Serial output is like:
 
-        // A raw value of 1270 = 22 degrees
-        // as the number drops, temperature increases
-        uint8_t num_leds = map(temp_direct_calculated, 18, 35, 10, 26);
-    
-        FillLEDsFromPaletteColors(0,  num_leds); 
-       
-    
+V|33|D|000196|000104|000000|000000|000000|000000|000393|0
+battery: 33
+movement: 196
+thermopile_surface_ir: 104
+thermistor_ambient_temp: 393
+Temperature:	25.04C		298.19K		77.08F
+IR temperature:	21.01
 
-        Serial.print("The (calculated) IR ambient temp: ");
-        temp_ambient_calculated = 22 + ((1270-temp_ambient_raw)/temp_ambient_degree_movement);
-        Serial.println(temp_ambient_calculated);  
-
-
-        // Display the direct temperature        
-       // fill_gradient(leds, temp_ambient_calculated-22+15, CHSV(0, 0,255), CHSV(255,0,0), LONGEST_HUES);    // up to 4 CHSV values
-      //  FastLED.show();
-       // FastLED.delay(8);
-
-
-        /*
-        // OLED Display
-        u8g2.setFont(u8g2_font_6x10_tf); 
-        //u8g2.drawStr(0,64,"v1.3"); 
-        u8g2.drawStr(0,64,radio.receiveChars()); 
-        u8g2.sendBuffer();     
-            */
+*/
     }
   
-    
+#ifdef SEND_STUFF
+    // Periodically send something random.
     if (now > lastSend) 
     {
         memset(output, 0x00, sizeof(output));  
-        sprintf(output, "Packet %d ", counter++);
-        //radio.sendChars(output);
-      
-        radio.sendChars("----------------------------------"); 
-    
+        sprintf(output, "** Sending packet %d ", counter++);
+        
+        radio.sendChars("----------------------------------", DESINATION_DEVICE_ADDRESS);     
         lastSend = now + sendDelay;
     }
+#endif
 
+#ifdef SHOW_CC_STATUS
   
     if (now > lastStatusDump)
     {        
-        //radio.printCCState();
-        /*
+        radio.printCCState();        
         radio.printCCFIFOState();
         radio.printMarcstate();
-        
-        Serial.printf("Heap Free: %d\n", ESP.getFreeHeap());
-  */
         lastStatusDump = now + statusDelay; 
     }
-    
+
+#endif     
+
+
 }

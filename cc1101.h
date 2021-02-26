@@ -49,28 +49,7 @@ enum CC_STATE
   STATE_TXFIFO_UNDERFLOW,
   STATE_UNKNOWN // shouldn't be in this state for long
 };
-
-
-/**
- * Global variables for packet and stream interrupts
- */
-static  bool streamReceived;
-static  bool packetReceived;
-
-/**
- * Global functions for packet and stream interrupts
- */
-inline void ICACHE_RAM_ATTR interupt_streamReceived() {
-    streamReceived = true;
-}
-
-inline void ICACHE_RAM_ATTR interupt_packetReceived() {
-    packetReceived = true;
-}
-
-
-
-    
+   
 
 /**
  * Miscellaneous
@@ -296,14 +275,14 @@ static uint8_t patable_power_9XX[] = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
 /**
  * CC1101 generic configuration defaults - will need to be overwritten!
  */
-#define CC1101_DEFVAL_IOCFG2     0x06        // GDO2 Output Pin Configuration - used to interrupt on packet recieved! (either use this pin on the CC or GDO0/IOCFG0)
+#define CC1101_DEFVAL_IOCFG2     0x06        // GDO2 Output Pin Configuration - used to interrupt on packet received! (either use this pin on the CC or GDO0/IOCFG0)
 #define CC1101_DEFVAL_IOCFG1     0x2E        // GDO1 Output Pin Configuration - not used
-#define CC1101_DEFVAL_IOCFG0     0x06        // GDO0 Output Pin Configuration - used to interrupt on packet recieved!
+#define CC1101_DEFVAL_IOCFG0     0x06        // GDO0 Output Pin Configuration - used to interrupt on packet received! Useless on TX
 #define CC1101_DEFVAL_FIFOTHR    0x07        // RX FIFO and TX FIFO Thresholds
 #define CC1101_DEFVAL_SYNC1      0xD3        // Synchronization word, high byte
 #define CC1101_DEFVAL_SYNC0      0x91        // Synchronization word, low byte
 #define CC1101_DEFVAL_PKTLEN     61          // Max RADIO Packet Length (61 bytes of data for this library). Packet is discarded if bigger.
-#define CC1101_DEFVAL_PKTCTRL1   0x06        // Packet Automation Control //  Address check and 0 (0x00) broadcast + append two bytes on reciept for CRC info and RSSI/LQI
+#define CC1101_DEFVAL_PKTCTRL1   0x06        // Packet Automation Control //  Address check and 0 (0x00) broadcast + append two bytes on receipt for CRC info and RSSI/LQI
 #define CC1101_DEFVAL_PKTCTRL0   0x44        // Packet Automation Control // whitening enabled + fixed length packet + crc appended
 #define CC1101_DEFVAL_ADDR       0x00        // This devices address, used for packet filtration. Optional broadcast addresses are 0(0x00) and 255 (0xFF).
 #define CC1101_DEFVAL_CHANNR     0x00        // Channel Number - The 8-bit unsigned channel number, which is multiplied by the channel spacing setting and added to the base frequency.
@@ -338,7 +317,8 @@ static uint8_t patable_power_9XX[] = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
   
   // These won't change - Modem behaviour. Irrelevant to freq / bitrate
   #define CC1101_DEFVAL_MCSM2      0x07        // Main Radio Control State Machine Configuration  // Stay in RX until end of packet.
-  #define CC1101_DEFVAL_MCSM1      0x30        // Main Radio Control State Machine Configuration  // What do do after a packet is sent or recieved. 0x30 = go to idle, 0x33 - switch to rx after tx 
+  //#define CC1101_DEFVAL_MCSM1      0x30        // Main Radio Control State Machine Configuration  // What do do after a packet is sent or recieved. 0x30 = go to idle, 0x33 - switch to rx after tx 
+  #define CC1101_DEFVAL_MCSM1      0x33        // Main Radio Control State Machine Configuration  // What do do after a packet is sent or recieved. 0x30 = go to idle, 0x33 - switch to rx after tx 
   #define CC1101_DEFVAL_MCSM0      0x18        // Main Radio Control State Machine Configuration
   
   // These might change with freq / bitrate
@@ -417,6 +397,8 @@ class CC1101
     CFREQ     carrierFreq;  // The frequency chosen
     DATA_RATE dataRate;     // The data rate.
     CC_STATE  currentState; // What the state of the CC1101 is according to our last check
+	
+	uint8_t CC1101_GDO0_interrupt_pin;
 
     void configureGPIO(void);   
 
@@ -575,10 +557,13 @@ class CC1101
      * @param freq Carrier frequency
      * @param mode Working mode (speed, ...)
      */
-    bool begin(CFREQ freq=CFREQ_868, DATA_RATE rate=KBPS_250, uint8_t channr=CC1101_DEFVAL_CHANNR, uint8_t addr=CC1101_DEFVAL_ADDR);
+	 
+	 //!radio.begin(CFREQ_868, KBPS_250, /* channel num */ 16, /* address */ 0, CC1101_DEFVAL_ADDR, INTERRUPT_PIN /* Interrupt */) ) // channel 16! Whitening enabled 
+	 
+    bool begin(CFREQ freq, DATA_RATE rate, uint8_t channr, uint8_t addr, uint8_t interrupt_pin);
     
     /* For when all the configuration data is provided */
-    bool begin(const byte regConfig[NUM_CONFIG_REGISTERS]);    
+    bool begin(const byte regConfig[NUM_CONFIG_REGISTERS], uint8_t interrupt_pin);    
 
 
     /**
@@ -640,7 +625,7 @@ class CC1101
      */
     bool sendChars(const char * data, uint8_t dst_address=BROADCAST_ADDRESS);
     bool sendBytes(byte * data,  uint16_t size, uint8_t dst_address=BROADCAST_ADDRESS);  
-    uint16_t getStreamSize(void);	
+    uint16_t getSize(void);	
 		
 	inline int getLastRSSI(void)
 	{ return receivedRSSI; }; // get the RSSI of the last packet to be received
@@ -648,14 +633,14 @@ class CC1101
     /**
      * Returns pointer to RX buffer
      */
-    char *  receiveChars(void);
+    char *  getChars(void);
     //bool sendBytes(byte * data);    
 
 
     /**
      * Returns pointer to RX buffer
      */
-    byte *  receiveBytes(void);
+    byte *  getBytes(void);
     //bool sendBytes(byte * data);   
     
 

@@ -1,9 +1,16 @@
 #include "cc1101.h"
-#include "cc1101_esp_pin_config.h"
 
 // Do we want the inbuild led to flash when we send or recieve? Useful for diagnostics.
 // Comment the below line out to turn this off.
 #define ENABLE_BUILTIN_LED 1 
+
+//#define SERIAL_INFO 1
+
+#ifdef ESP32
+	#define LED_PIN 2
+#else
+	#define LED_PIN LED_BUILTIN
+#endif
 
 /**
    Macros
@@ -15,11 +22,43 @@
 // Wait until SPI MISO line goes low
 #define wait_Miso()  while(digitalRead(MISO)>0)
 // Get GDO0 pin state
-#define getGDO0state()  digitalRead(CC1101_GDO0)
+#define getGDO0state()  digitalRead(CC1101_GDO0_interrupt_pin)
 // Wait until GDO0 line goes high
 #define wait_GDO0_high()  while(!getGDO0state())
 // Wait until GDO0 line goes low
 #define wait_GDO0_low()  while(getGDO0state())
+
+
+
+/**
+ * Global variables for packet and stream interrupts
+ */
+volatile bool streamReceived = false;
+volatile bool packetReceived = false;
+
+/**
+ * Global functions for packet and stream interrupts
+ */
+#ifdef ESP32
+void IRAM_ATTR interupt_streamReceived() {
+    streamReceived = true;
+}
+
+void IRAM_ATTR interupt_packetReceived() {
+    packetReceived = true;
+}
+#else
+void ICACHE_RAM_ATTR interupt_streamReceived() {
+    streamReceived = true;
+}
+
+void ICACHE_RAM_ATTR interupt_packetReceived() {
+    packetReceived = true;
+}
+#endif
+
+
+
 
 /**
    CC1101
@@ -50,21 +89,24 @@ CC1101::CC1101(void)
 /* Configure the ESP's GPIO etc */
 void CC1101::configureGPIO(void)
 {
+	
+  Serial.print("SPI Clock Divider is: ");
+  Serial.println(SPI.getClockDivider(), DEC);
 
 #ifdef ESP32
   pinMode(SS, OUTPUT);                       // Make sure that the SS Pin is declared as an Output
 #endif
- // SPI.setFrequency(1000000);
   SPI.begin();                          // Initialize SPI interface
-  pinMode(CC1101_GDO0, INPUT);          // Config GDO0 as input
+  SPI.setFrequency(400000);  
+  pinMode(CC1101_GDO0_interrupt_pin, INPUT);          // Config GDO0 as input
 
 #ifdef ENABLE_BUILTIN_LED
-  pinMode(LED_BUILTIN, OUTPUT);         // Led will flash on recieve and send of packet
+  pinMode(LED_PIN, OUTPUT);         // Led will flash on recieve and send of packet
 #endif
 
   if (serialDebug) {
     Serial.print(F("Using ESP Pin "));
-    Serial.print(CC1101_GDO0);
+    Serial.print(CC1101_GDO0_interrupt_pin);
     Serial.println(F(" for CC1101 GDO0 / GDO2."));
   }
 
@@ -78,10 +120,12 @@ void CC1101::configureGPIO(void)
    @param freq Carrier frequency
    @param mode Working mode (speed, ...)
 */
-bool CC1101::begin(CFREQ freq, DATA_RATE rate, uint8_t channr, uint8_t addr)
+bool CC1101::begin(CFREQ freq, DATA_RATE rate, uint8_t channr, uint8_t addr, uint8_t _int_pin)
 {
   carrierFreq = freq;
   dataRate    = rate;
+  
+  CC1101_GDO0_interrupt_pin = _int_pin;
 
   channel       = channr;
   devAddress    = addr; 
@@ -93,6 +137,10 @@ bool CC1101::begin(CFREQ freq, DATA_RATE rate, uint8_t channr, uint8_t addr)
   delay(100);  
 
   setCCregs();
+  
+	flushRxFifo();     
+ 
+	flushTxFifo();     
 
   attachGDO0Interrupt();
 
@@ -101,8 +149,10 @@ bool CC1101::begin(CFREQ freq, DATA_RATE rate, uint8_t channr, uint8_t addr)
 }
 
 /* Begin function when we're given all the 47 configuration registers in one hit */
-bool CC1101::begin(const byte regConfig[NUM_CONFIG_REGISTERS])
+bool CC1101::begin(const byte regConfig[NUM_CONFIG_REGISTERS], uint8_t _int_pin)
 {
+	
+  CC1101_GDO0_interrupt_pin = _int_pin;	
 
   configureGPIO();
 
@@ -145,7 +195,7 @@ bool CC1101::checkCC(void)
 
     // ALERT
 #ifdef ENABLE_BUILTIN_LED    
-    digitalWrite(LED_BUILTIN, LOW);
+    digitalWrite(LED_PIN, LOW);
 #endif    
     Serial.println(F("CC1101 not detected!"));
 
@@ -173,7 +223,7 @@ void CC1101::attachGDO0Interrupt(void)
   if (serialDebug)
     Serial.println(F("Attaching Interrupt to GDO0"));
 
-  attachInterrupt(CC1101_GDO0, interupt_packetReceived, FALLING);
+  attachInterrupt(CC1101_GDO0_interrupt_pin, interupt_packetReceived, FALLING);
 }
 
 void CC1101::detachGDO0Interrupt(void)
@@ -181,7 +231,7 @@ void CC1101::detachGDO0Interrupt(void)
   if (serialDebug)
     Serial.println(F("Detaching Interrupt to GDO0"));
 
-  detachInterrupt(CC1101_GDO0);
+  detachInterrupt(CC1101_GDO0_interrupt_pin);
 }
 
 
@@ -305,7 +355,7 @@ byte CC1101::readReg(byte regAddr, byte regType)
   cc1101_Select();                      // Select CC1101
   wait_Miso();                          // Wait until MISO goes low
   SPI.transfer(addr);                   // Send register address
-  //delayMicroseconds(1);  // HACK
+  delayMicroseconds(1);  // HACK
   _NOP(); _NOP(); _NOP(); _NOP();_NOP(); _NOP(); _NOP(); _NOP();_NOP(); _NOP(); _NOP(); _NOP();_NOP(); _NOP(); _NOP(); _NOP(); // HACK2
   val = SPI.transfer(0x00);             // Read result
   cc1101_Deselect();                    // Deselect CC1101
@@ -647,6 +697,8 @@ bool CC1101::sendChars(const char * data, uint8_t cc_dest_address)
 */
 bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_address)
 {
+  CCPACKET packet; // create a packet
+  
   unsigned long start_tm; start_tm = millis();
   bool sendStatus = false;
   
@@ -669,8 +721,8 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
 */
 	
   detachGDO0Interrupt(); // we don't want to get interrupted at this important moment in history
+  flushRxFifo();
 
-  CCPACKET packet; // create a packet
 
   uint16_t unsent_stream_bytes = stream_length;
 
@@ -696,7 +748,7 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
     //https://stackoverflow.com/questions/6081842/sizeof-is-not-executed-by-preprocessor
     uint8_t payload_size = MIN(STREAM_PKT_MAX_PAYLOAD_SIZE, unsent_stream_bytes);
 
-    packet.payload_size	        = payload_size; // CCPACKET_OVERHEAD_STREAM added in sendPacket
+    packet.payload_size	        	= payload_size; // CCPACKET_OVERHEAD_STREAM added in sendPacket
     packet.cc_dest_address  		= cc_dest_address; // probably going to broadcast this most of the time (0x00, or 0xFF)
     packet.stream_num_of_pkts  		= stream_num_of_pkts;
     packet.stream_pkt_seq_num  		= stream_pkt_seq_num++;
@@ -712,7 +764,7 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
 	
     memcpy( (byte *)packet.payload, &data[start_pos], payload_size); // cast as char
 /*	
-	// HACK: REMOVE - FOR VALIDATION TESTING ONLY
+	// REMOVE - FOR VALIDATION TESTING ONLY
 
 	Serial.println("");
 	
@@ -769,11 +821,11 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
 bool CC1101::sendPacket(CCPACKET packet)
 {
 	byte marcState;
-  byte txBytes, txOverflow;  
+    byte txBytes, txOverflow;  
 	bool res = false;
 
 #ifdef ENABLE_BUILTIN_LED
-  digitalWrite(LED_BUILTIN, LOW);
+  digitalWrite(LED_PIN, LOW);
 #endif
 
  /**
@@ -818,32 +870,32 @@ bool CC1101::sendPacket(CCPACKET packet)
   * overflowed.
   */ 
 
-	// Enter RX state (we might recieve a packet whilst getting ready to TX)
+	// Enter RX state (we might receive a packet whilst getting ready to TX)
 	setRxState();
-
-
+	
 	int tries = 0;
-	// Check that the RX state has been entered
-	while (tries++ < 1000 && ((marcState = readStatusReg(CC1101_MARCSTATE)) & 0x1F) != MARCSTATE_RX)
+	while (tries++ < 1000 && ((marcState = readStatusRegSafe(CC1101_MARCSTATE)) & 0b11111) != MARCSTATE_RX)
 	{
+		setRxState();	
+		flushTxFifo();    
 
-	if (marcState == MARCSTATE_RXFIFO_OVERFLOW)        // RX_OVERFLOW
-	  flushRxFifo();              // flush receive queue
+		if (marcState == MARCSTATE_RXFIFO_OVERFLOW)        // RX_OVERFLOW
+			flushRxFifo();              // flush receive queue
 
-	if (marcState == MARCSTATE_TXFIFO_UNDERFLOW)        // TX_UNDERFLOW
-	  flushTxFifo();              // flush send queue
+		if (marcState == MARCSTATE_TXFIFO_UNDERFLOW)        // TX_UNDERFLOW
+			flushTxFifo();              // flush send queue
 
-	/* Page 31, Table 23.
-	   110 RXFIFO_OVERFLOW RX FIFO has overflowed. Read out any useful data, then flush the FIFO with SFRX
-	   111 TXFIFO_UNDERFLOW TX FIFO has underflowed. Acknowledge with SFTX
-	*/
-
+		// Page 31, Table 23.
+		//   110 RXFIFO_OVERFLOW RX FIFO has overflowed. Read out any useful data, then flush the FIFO with SFRX
+		//   111 TXFIFO_UNDERFLOW TX FIFO has underflowed. Acknowledge with SFTX
+		//
 	}
 	if (tries >= 100) 
 	{
 		// TODO: MarcState sometimes never enters the expected state; this is a hack workaround.
 		return false;
 	}
+	
 
   /* 
    *  Step 2: Check to see if stuff is already in the TX FIFO. If so. Flush it. 
@@ -866,7 +918,7 @@ bool CC1101::sendPacket(CCPACKET packet)
     flushTxFifo();        // Flush Tx FIFO
     setRxState();         // Back to RX state
 
-    return false;    
+  //  return false;    
       
   }
 
@@ -918,43 +970,50 @@ bool CC1101::sendPacket(CCPACKET packet)
   */
 
 	// I assume the CC1101 sends the two extra CRC bytes here somewhere.
-  if (serialDebug)
-  {
-    Serial.print(F("Number of bytes to send: "));
-    Serial.println(readStatusReg(CC1101_TXBYTES) & 0x7F, DEC);
-  }
+	if (serialDebug)
+	{
+		Serial.print(F(">> Number of bytes to send: "));
+		Serial.println(readStatusReg(CC1101_TXBYTES) & 0x7F, DEC);
+	}
 
 
 	// CCA enabled: will enter TX state only if the channel is clear
 	setTxState();
-  
-	// Check that TX state is being entered (state = RXTX_SETTLING)
-	marcState = readStatusReg(CC1101_MARCSTATE) & 0x1F;
-	if ((marcState != MARCSTATE_TX) && (marcState != MARCSTATE_TX_END) && (marcState != MARCSTATE_RXTX_SWITCH))
-	{
+	delay(1);
 
-		//Serial.println("Error: TX Mode was NOT entered");
-    //Serial.println(marcState, HEX);
+	// Check that TX state is being entered (state = RXTX_SETTLING)
+	// Could also have been completed already and gone to IDLE as per the 0x18: MCSM0– Main Radio Control State Machine Configuration !
+	/*
+	if ((marcState != MARCSTATE_TX) && (marcState != MARCSTATE_TX_END) && (marcState != MARCSTATE_RXTX_SWITCH) && (marcState != MARCSTATE_IDLE) )
+	{
+		
 
 		setIdleState();       // Enter IDLE state
 		flushTxFifo();        // Flush Tx FIFO
 		setRxState();         // Back to RX state
-
-		return false;
 	}
+	*/
 
 
   if (currentConfig[CC1101_IOCFG0] == 0x06) //if sync word detect mode is used
   {        
+	Serial.println("Sync word mode enabled");
+
     // Wait for the sync word to be transmitted
-    wait_GDO0_high();
+    // wait_GDO0_high(); // should have already happened!!
   
     // Wait until the end of the packet transmission
     wait_GDO0_low();
   }
+  
+    if (serialDebug)
+    {
+		Serial.print(F("Bytes remaining in TX FIFO (should be zero):"));
+		Serial.println((readStatusRegSafe(CC1101_TXBYTES) & 0x7F), DEC);		
+	}
 
 	// Check that the TX FIFO is empty
-	if ((readStatusReg(CC1101_TXBYTES) & 0x7F) == 0)
+	if ((readStatusRegSafe(CC1101_TXBYTES) & 0x7F) == 0)
 		res = true;
 
 	setIdleState();       // Enter IDLE state
@@ -962,9 +1021,17 @@ bool CC1101::sendPacket(CCPACKET packet)
 
 	// Enter back into RX state
 	setRxState();
+	
+    if (serialDebug)
+    {
+		if (res == true) 
+			Serial.println(F(">>> TX COMPLETED SUCCESSFULLY."));
+	}	
+	
+
 
 #ifdef ENABLE_BUILTIN_LED
-  digitalWrite(LED_BUILTIN, HIGH);
+  digitalWrite(LED_PIN, HIGH);
 #endif
 
 	return res;
@@ -986,12 +1053,36 @@ bool CC1101::sendPacket(CCPACKET packet)
 */
 bool CC1101::dataAvailable(void)
 { 
+
+/*
+  if (currentState != STATE_RX) {
+	setRxState(); 
+	//Serial.print(".");
+  }
+*/		
   // Any packets?
-  if (!packetReceived) return false; // just to get that out of the way.
-    
+  if (!packetReceived)
+  {
+	  // A double layer of protection every 5 seconds or so
+	  // CC1100 will seemingly just randomly stop sending interrupts when RX FIFO full.
+	  if ( (millis() - last_CCState_check) > 5000)
+	  {
+		byte rxBytes = readStatusRegSafe(CC1101_RXBYTES) & 0b01111111;
+		if (rxBytes > 60) 
+		{
+			packetReceived = true;
+			last_CCState_check = millis();
+		}
+	  } 
+	  
+	  return false;
+  }
+  
   bool _streamReceived = false;
 
+#ifdef SERIAL_INFO
   Serial.println(F("---------- START: RX Interrupt Request  -------------"));
+#endif  
 
   // We got something
   detachGDO0Interrupt(); // we don't want to get interrupted at this important moment in history
@@ -1001,6 +1092,9 @@ bool CC1101::dataAvailable(void)
 
   if (receivePacket(&packet) > 0)
   {
+	receivedRSSI = decodeCCRSSI(packet.rssi);
+
+#ifdef SERIAL_INFO	  
     Serial.println(F("Processing packet in dataAvailable()..."));
 
     if (!packet.crc_ok)
@@ -1010,12 +1104,13 @@ bool CC1101::dataAvailable(void)
 	
     Serial.print(F("lqi: ")); 	Serial.println(decodeCCLQI(packet.lqi));
     Serial.print(F("rssi: ")); 	Serial.print(decodeCCRSSI(packet.rssi)); Serial.println(F("dBm"));
+#endif	
 	
-	receivedRSSI = decodeCCRSSI(packet.rssi);
 
 
     if (packet.crc_ok && packet.payload_size > 0)
     {
+#ifdef SERIAL_INFO	  		
       Serial.print(F("stream_num_of_pkts: "));
       Serial.println(packet.stream_num_of_pkts, DEC);
       
@@ -1026,6 +1121,7 @@ bool CC1101::dataAvailable(void)
 	  Serial.println(packet.payload_size, DEC);
 	  Serial.print(F("Data: "));
 	  Serial.println((const char *) packet.payload);
+#endif	  
 
       // This data stream was only one packets length (i.e. < 57 bytes or so)
       // therefore we just copy to the buffer and we're all good!
@@ -1037,8 +1133,9 @@ bool CC1101::dataAvailable(void)
         memset(stream_multi_pkt_buffer, 0, sizeof(stream_multi_pkt_buffer)); // flush
         memcpy(stream_multi_pkt_buffer, packet.payload, packet.payload_size);
 		
+#ifdef SERIAL_INFO	 		
 		Serial.println(F("Single packet stream has been received."));
-		
+#endif		
 		receivedStreamSize = packet.payload_size;
 
         _streamReceived = true;
@@ -1057,15 +1154,19 @@ bool CC1101::dataAvailable(void)
 			unsigned int buff_end_pos 	= buff_start_pos + (unsigned int) packet.payload_size;
 			
 			// HACK: REMOVE
+#ifdef SERIAL_INFO	 			
 			Serial.print("HEX content of packet:");
 			for (int i = 0; i < packet.payload_size; i++)
 			{
 				Serial.printf("%02x", packet.payload[i]);
 			}
+#endif			
 
 			
 		//	if (serialDebug)
+#ifdef SERIAL_INFO	 		
 			Serial.printf("Received stream packet %d of %d. Buffer start position: %d, end position %d, payload size: %d\r\n", (int)packet.stream_pkt_seq_num, (int)packet.stream_num_of_pkts, (int)buff_start_pos, (int)buff_end_pos, (int) packet.payload_size);
+#endif			
 
 			if ( buff_end_pos > MAX_STREAM_LENGTH)
 			{
@@ -1079,8 +1180,9 @@ bool CC1101::dataAvailable(void)
 				// Are we at the last packet?
 				if (packet.stream_num_of_pkts ==  packet.stream_pkt_seq_num)
 				{
-           
+#ifdef SERIAL_INFO	            
 					Serial.printf("Multi-packet stream of %d bytes hase been received in full!\n", buff_end_pos);
+#endif					
 					receivedStreamSize = buff_end_pos;
 					_streamReceived = true;
 				}
@@ -1095,7 +1197,10 @@ bool CC1101::dataAvailable(void)
   } // packet isn't just 0's check
 
   attachGDO0Interrupt();
+  
+#ifdef SERIAL_INFO  
   Serial.println(F("---------- END: RX Interrupt Request  -------------"));
+#endif
 
   return _streamReceived;
 }
@@ -1103,23 +1208,23 @@ bool CC1101::dataAvailable(void)
 
 
 /**
-   receiveChars
+   getChars
 
    Returns a char pointer to the RX buffer.
 
 */
-char * CC1101::receiveChars(void)
+char * CC1101::getChars(void)
 {
   return (char * ) stream_multi_pkt_buffer;
 }
 
 /**
-   receiveBytes
+   getBytes
 
    Returns a byte pointer to the RX buffer.
 
 */
-byte * CC1101::receiveBytes(void)
+byte * CC1101::getBytes(void)
 {
   return (byte * ) stream_multi_pkt_buffer;
 }
@@ -1127,7 +1232,7 @@ byte * CC1101::receiveBytes(void)
 /* Get the number of bytes in the stream.
    This is always <= MAX_STREAM_LENGTH
  */
-uint16_t CC1101::getStreamSize(void)
+uint16_t CC1101::getSize(void)
 {
 	return receivedStreamSize;
 }
@@ -1159,11 +1264,13 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
 
   start_tm = millis();
 
-  Serial.print(F("* Packet Received on channel "));
+#ifdef SERIAL_INFO	 
+  Serial.print(F("* Packet Received on channel: "));
   Serial.println(channel, DEC);
+#endif  
 
 #ifdef ENABLE_BUILTIN_LED
-  digitalWrite(LED_BUILTIN, LOW);  
+  digitalWrite(LED_PIN, LOW);  
 #endif
   if (currentConfig[CC1101_IOCFG0] == 0x06) //if sync word detect mode is used
   {
@@ -1192,8 +1299,10 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
   rxBytes     = rxBytes & BYTES_IN_FIFO;
   rxOverflow  = rxBytes & OVERFLOW_IN_FIFO;
   
+#ifdef SERIAL_INFO	   
   Serial.print(F("* RX FIFO bytes pending read: "));
   Serial.println(rxBytes, DEC);
+#endif  
 /*
   ---------- START: RX Interrupt Request  -------------
   Packet Received
@@ -1223,7 +1332,9 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
 
     packet->payload_size = 0;
 
+#ifdef SERIAL_INFO	 
     Serial.println(F("RX was in overflow. Flushing."));
+#endif	
     
     return packet->payload_size;   
  }
@@ -1264,8 +1375,10 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
      packet->cc_dest_address      = cc1101_rx_tx_fifo_buff[0]; // byte 1     
      packet->payload_size         = cc1101_rx_tx_fifo_buff[1]; // byte 2
 
+#ifdef SERIAL_INFO
      if (packet->cc_dest_address == BROADCAST_ADDRESS)
       Serial.println(F("* Received broadcast packet"));
+#endif	  
      
     if (serialDebug)
     {
@@ -1340,20 +1453,24 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
   rxBytes     = rxBytes & BYTES_IN_FIFO;
   rxOverflow  = rxBytes & OVERFLOW_IN_FIFO;
 
+#ifdef SERIAL_INFO	 
   if ( rxBytes != 0 )
   {
     Serial.print(F("Error: Bytes left over in RX FIFO: "));
     Serial.println(rxBytes, DEC);  
   }
+#endif  
 
   
   // Back to RX state
   setRxState();
 
+#ifdef SERIAL_INFO	 
   Serial.printf("Took %d milliseconds to complete recievePacket()\n", (millis() - start_tm));
+#endif  
 
 #ifdef ENABLE_BUILTIN_LED
-  digitalWrite(LED_BUILTIN, HIGH);
+  digitalWrite(LED_PIN, HIGH);
 #endif
 
   return packet->payload_size;
@@ -1624,10 +1741,10 @@ void CC1101::printCCState(void)
 void CC1101::printCCFIFOState(void)
 {
 
-  byte rxBytes = readStatusReg(CC1101_RXBYTES) & 0b01111111;
+  byte rxBytes = readStatusRegSafe(CC1101_RXBYTES) & 0b01111111;
   Serial.printf("Number of bytes in RX FIFO: %d\n", rxBytes);
 
-  byte txBytes = readStatusReg(CC1101_TXBYTES) & 0b01111111;
+  byte txBytes = readStatusRegSafe(CC1101_TXBYTES) & 0b01111111;
   Serial.printf("Number of bytes in TX FIFO: %d\n", txBytes);
 
 }
@@ -1642,7 +1759,7 @@ void CC1101::printCCFIFOState(void)
 void CC1101::printMarcstate(void)
 {
 
-      byte marcState =  readStatusReg(CC1101_MARCSTATE) & 0x1F;
+      byte marcState =  readStatusRegSafe(CC1101_MARCSTATE) & 0x1F;
 
       Serial.print(F("Marcstate: "));
       switch (marcState) 
