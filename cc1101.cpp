@@ -249,6 +249,21 @@ void CC1101::wakeUp(void)
   cc1101_Select();                      // Select CC1101
   wait_Miso();                          // Wait until MISO goes low
   cc1101_Deselect();                    // Deselect CC1101
+  
+  if (serialDebug)
+	Serial.println("CC1101 has been woken up.");
+  
+  attachGDO0Interrupt(); 
+  // Reload config just to be sure?
+  hardReset();                              // Reset CC1101
+  delay(100);  
+  setCCregs();
+  setIdleState();       // Enter IDLE state before flushing RxFifo (don't need to do this when Overflow has occured)
+  delayMicroseconds(1);
+  flushRxFifo();        // Flush Rx FIFO  
+  flushTxFifo();     
+  detachGDO0Interrupt();
+  
 }
 
 /**
@@ -739,8 +754,10 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
     return false;
   }
 
+#ifdef SERIAL_INFO
   Serial.print(F("Sending byte stream of ")); Serial.print(stream_length, DEC); Serial.println(F(" bytes in length."));
-  
+#endif
+
   uint8_t  stream_pkt_seq_num = 1;
   uint8_t  stream_num_of_pkts = 0; // we have to send at least one!
 
@@ -1012,7 +1029,8 @@ bool CC1101::sendPacket(CCPACKET packet)
 
   if (currentConfig[CC1101_IOCFG0] == 0x06) //if sync word detect mode is used
   {        
-	Serial.println("Sync word mode enabled");
+	if (serialDebug)
+		Serial.println(F("Sync word mode enabled"));
 
     // Wait for the sync word to be transmitted
     // wait_GDO0_high(); // should have already happened!!

@@ -6,7 +6,7 @@
 
 #define RADIO_CHANNEL             16
 #define THIS_DEVICE_ADDRESS       22
-#define DESINATION_DEVICE_ADDRESS BROADCAST_ADDRESS // Broadcast channel is 0
+#define DESINATION_DEVICE_ADDRESS BROADCAST_ADDRESS // Broadcast
 
 /** 
  *  NOTE: On ESP8266 can't use D0 for interrupts on WeMos D1 mini.
@@ -20,7 +20,7 @@
  *
  */
 
-// External interrupt pin for GDO0
+// External intterupt pin for GDO0
 #ifdef ESP32
   #define GDO0_INTERRUPT_PIN 13
 #elif ESP8266
@@ -33,7 +33,7 @@
 
 // Sketch output & behaviour
 
-//#define SEND_STUFF 1  // have this script send things as well
+#define SEND_STUFF 1  // have this script send things as well
 //#define SHOW_CC_STATUS 1
 
 
@@ -105,6 +105,7 @@ int   counter = 0;
 char  output[64] = {0};
 char * return_data;
 
+
 void loop() 
 {
     unsigned long now = millis();
@@ -132,7 +133,7 @@ void loop()
         int thermopile_surface_ir = rec_payload.substring(15,21).toInt();
         //Serial.print("thermopile_surface_ir: "); Serial.println(thermopile_surface_ir);  
 
-        int thermistor_ambient_temp = rec_payload.substring(50,56).toInt();
+        int thermistor_ambient_temp = rec_payload.substring(22).toInt();
         //Serial.print("thermistor_ambient_temp: "); Serial.println(thermistor_ambient_temp);  
 
         VRT  = thermistor_ambient_temp;     // Acquisition analog value of VRT
@@ -193,7 +194,7 @@ IR temperature:	21.01
     if (now > lastStatusDump)
     {        
         radio.printCCState();        
-        radio.printCCFIFOState();
+        radio.printCCFIFOState(); 
         radio.printMarcstate();
         lastStatusDump = now + statusDelay; 
     }
