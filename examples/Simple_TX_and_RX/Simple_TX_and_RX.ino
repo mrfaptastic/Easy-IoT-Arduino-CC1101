@@ -6,7 +6,7 @@
 
 #define RADIO_CHANNEL             16
 #define THIS_DEVICE_ADDRESS       22
-#define DESINATION_DEVICE_ADDRESS BROADCAST_ADDRESS // Broadcast
+#define DESINATION_DEVICE_ADDRESS BROADCAST_ADDRESS // Broadcast channel is 0
 
 /** 
  *  NOTE: On ESP8266 can't use D0 for interrupts on WeMos D1 mini.
@@ -20,16 +20,20 @@
  *
  */
 
+// External interrupt pin for GDO0
 #ifdef ESP32
   #define GDO0_INTERRUPT_PIN 13
-#else
+#elif ESP8266
   #define GDO0_INTERRUPT_PIN D2
-#endif  
+#elif __AVR__
+  #define GDO0_INTERRUPT_PIN 5 // Digital D2 or D3 on the Arduino Nano allow external interrupts only
+#endif
 
 /*******************************************************************/
 
-// Sketch output
-//#define SEND_STUFF_AS_WELL 1  // have this script send things as well
+// Sketch output & behaviour
+
+//#define SEND_STUFF 1  // have this script send things as well
 //#define SHOW_CC_STATUS 1
 
 
@@ -172,7 +176,7 @@ IR temperature:	21.01
 */
     }
   
-#ifdef SEND_STUFF_AS_WELL
+#ifdef SEND_STUFF
     // Periodically send something random.
     if (now > lastSend) 
     {

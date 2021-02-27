@@ -416,7 +416,7 @@ class CC1101
     // For the stream of packets - reassembly. A bit of a hack.
     uint8_t  previous_pkt_seq_num;
 
-    // To quicky get stuff out, or put stuff into the CC1101 FIFO
+    // To quickly get stuff out of cc1101, or buffer what to put into the CC1101 FIFO
     byte cc1101_rx_tx_fifo_buff[64] = { 0 };
 
     /**

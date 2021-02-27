@@ -1,10 +1,10 @@
 # Easy-IoT-Arduino-CC1101-LORA
 
-This is an easy to use Arduino CC1101 library (working example) to be able to connect a [Texas Instruments CC1101](http://www.ti.com/product/CC1101) to a ESP32 or ESP8266.
+This is an easy to use Arduino CC1101 library (working example) to be able to connect a [Texas Instruments CC1101](http://www.ti.com/product/CC1101) to a ESP32, ESP8266 or AVR device (i.e. Arduino Nano).
 
 ## Buying a CC1101
 
-CC1101 modules can be bought [for a few bucks](https://www.aliexpress.com/item/CC1101-Wireless-Module-Long-Distance-Transmission-Antenna-868MHZ-M115/32635393463.html). These modules are tolerant of voltages ranging from 1.8 to 3.3 volts.
+CC1101 modules can be bought [for a few bucks](https://www.aliexpress.com/item/CC1101-Wireless-Module-Long-Distance-Transmission-Antenna-868MHZ-M115/32635393463.html). These modules are tolerant of voltages ranging from 1.8 to 3.3 volts. If using a 5volt Arduino AVR device, you will need to use a 5V to 3.3V logic-level converter across the pins or you will FRY your CC1101.
 
 ## Using a CC1101
 
@@ -18,7 +18,7 @@ This library supports sending large strings/streams of data, using multiple 61 b
 
 Pull this repository, and load the .ino file onto two ESP8266 devices with the opposite sending/receiving addresses configured (refer to the sketch code).
 
-## Connecting your ESP 8266 / ESP 32
+## Connecting your ESP 8266 (example)
 
 Use the standard SPI ports to connect to the 8 pins on the CC1101 module. For example, with the Wemos D1 Mini (ESP8266 Chip), it's easy as:
 

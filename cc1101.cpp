@@ -4,7 +4,10 @@
 // Comment the below line out to turn this off.
 #define ENABLE_BUILTIN_LED 1 
 
-//#define SERIAL_INFO 1
+
+// What debug and internal workings information do we want to output to Serial for debug or monitoring purposes?
+//#define SERIAL_INFO  1 
+
 
 #ifdef ESP32
 	#define LED_PIN 2
@@ -40,24 +43,20 @@ volatile bool packetReceived = false;
  * Global functions for packet and stream interrupts
  */
 #ifdef ESP32
-void IRAM_ATTR interupt_streamReceived() {
-    streamReceived = true;
-}
-
-void IRAM_ATTR interupt_packetReceived() {
-    packetReceived = true;
-}
-#else
-void ICACHE_RAM_ATTR interupt_streamReceived() {
-    streamReceived = true;
-}
-
-void ICACHE_RAM_ATTR interupt_packetReceived() {
-    packetReceived = true;
-}
+	#define ESP_INT_CODE IRAM_ATTR
+#elif ESP8266 
+	#define ESP_INT_CODE ICACHE_RAM_ATTR
+#else 
+	#define ESP_INT_CODE
 #endif
 
+void ESP_INT_CODE interupt_streamReceived() {
+    streamReceived = true;
+}
 
+void ESP_INT_CODE interupt_packetReceived() {
+    packetReceived = true;
+}
 
 
 /**
@@ -90,14 +89,16 @@ CC1101::CC1101(void)
 void CC1101::configureGPIO(void)
 {
 	
-  Serial.print("SPI Clock Divider is: ");
-  Serial.println(SPI.getClockDivider(), DEC);
-
 #ifdef ESP32
   pinMode(SS, OUTPUT);                       // Make sure that the SS Pin is declared as an Output
 #endif
-  SPI.begin();                          // Initialize SPI interface
+  SPI.begin();     
+  
+#if defined(ESP32) || defined(ESP8266)
+  // Initialize SPI interface
   SPI.setFrequency(400000);  
+#endif
+
   pinMode(CC1101_GDO0_interrupt_pin, INPUT);          // Config GDO0 as input
 
 #ifdef ENABLE_BUILTIN_LED
@@ -138,9 +139,12 @@ bool CC1101::begin(CFREQ freq, DATA_RATE rate, uint8_t channr, uint8_t addr, uin
 
   setCCregs();
   
-	flushRxFifo();     
- 
-	flushTxFifo();     
+  
+  setIdleState();       // Enter IDLE state before flushing RxFifo (don't need to do this when Overflow has occured)
+  delayMicroseconds(1);
+  flushRxFifo();        // Flush Rx FIFO  
+  flushTxFifo();     
+
 
   attachGDO0Interrupt();
 
@@ -197,7 +201,7 @@ bool CC1101::checkCC(void)
 #ifdef ENABLE_BUILTIN_LED    
     digitalWrite(LED_PIN, LOW);
 #endif    
-    Serial.println(F("CC1101 not detected!"));
+    Serial.println(F("Error: CC1101 not detected!"));
 
     return false;
     /*
@@ -381,7 +385,8 @@ byte CC1101::readStatusRegSafe(uint8_t regAddr)
   {
       statusRegByte       = statusRegByteVerify;
       statusRegByteVerify = readReg(regAddr, CC1101_STATUS_REGISTER);
-      yield();
+	  
+      //yield();
   }
   while(statusRegByte != statusRegByteVerify);   
 
@@ -721,8 +726,10 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
 */
 	
   detachGDO0Interrupt(); // we don't want to get interrupted at this important moment in history
-  flushRxFifo();
-
+  
+  setIdleState();       // Enter IDLE state before flushing RxFifo (don't need to do this when Overflow has occured)
+  delayMicroseconds(1);
+  flushRxFifo();        // Flush Rx FIFO
 
   uint16_t unsent_stream_bytes = stream_length;
 
@@ -783,7 +790,7 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
     while (tries++ < 3 && ((sendStatus = sendPacket(packet)) != true) )
     {
       Serial.println(F("Failed to send byte packet. Retrying. "));
-      delay(99); // random delay interval
+      delay(10); // random delay interval
     }
 
     if ( !sendStatus )
@@ -794,14 +801,19 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
 
     unsent_stream_bytes -= payload_size;
 
-    if (serialDebug)
-      Serial.printf("%d bytes remain unsent.\n", unsent_stream_bytes);
+    if (serialDebug){ 
+	  Serial.print(unsent_stream_bytes, DEC);
+      Serial.println(F(" bytes remain unsent."));
+	}
 
   } // end stream loop
 
   attachGDO0Interrupt();
   
-  Serial.printf("Took %d milliseconds to complete sendBytes()\n", (millis() - start_tm));  
+  if (serialDebug){
+	Serial.print((millis() - start_tm), DEC);
+	Serial.println(F(" milliseconds to complete sendBytes()"));  
+  }
 
   return sendStatus;
 }
@@ -876,8 +888,8 @@ bool CC1101::sendPacket(CCPACKET packet)
 	int tries = 0;
 	while (tries++ < 1000 && ((marcState = readStatusRegSafe(CC1101_MARCSTATE)) & 0b11111) != MARCSTATE_RX)
 	{
-		setRxState();	
-		flushTxFifo();    
+		//setRxState();	
+		//flushTxFifo();    
 
 		if (marcState == MARCSTATE_RXFIFO_OVERFLOW)        // RX_OVERFLOW
 			flushRxFifo();              // flush receive queue
@@ -889,6 +901,9 @@ bool CC1101::sendPacket(CCPACKET packet)
 		//   110 RXFIFO_OVERFLOW RX FIFO has overflowed. Read out any useful data, then flush the FIFO with SFRX
 		//   111 TXFIFO_UNDERFLOW TX FIFO has underflowed. Acknowledge with SFTX
 		//
+		
+		setRxState();
+		
 	}
 	if (tries >= 100) 
 	{
@@ -1158,7 +1173,7 @@ bool CC1101::dataAvailable(void)
 			Serial.print("HEX content of packet:");
 			for (int i = 0; i < packet.payload_size; i++)
 			{
-				Serial.printf("%02x", packet.payload[i]);
+				Serial.print(packet.payload[i], HEX); Serial.print(" ");
 			}
 #endif			
 
@@ -1742,10 +1757,10 @@ void CC1101::printCCFIFOState(void)
 {
 
   byte rxBytes = readStatusRegSafe(CC1101_RXBYTES) & 0b01111111;
-  Serial.printf("Number of bytes in RX FIFO: %d\n", rxBytes);
+  Serial.print(rxBytes, DEC); Serial.println(F(" bytes are in RX FIFO."));
 
   byte txBytes = readStatusRegSafe(CC1101_TXBYTES) & 0b01111111;
-  Serial.printf("Number of bytes in TX FIFO: %d\n", txBytes);
+  Serial.print(txBytes, DEC); Serial.println(F(" bytes are in TX FIFO."));
 
 }
 
