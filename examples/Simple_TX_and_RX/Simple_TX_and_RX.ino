@@ -21,15 +21,15 @@
  */
 
 #ifdef ESP32
-  #define INTERRUPT_PIN 13
+  #define GDO0_INTERRUPT_PIN 13
 #else
-  #define INTERRUPT_PIN D2
+  #define GDO0_INTERRUPT_PIN D2
 #endif  
 
 /*******************************************************************/
 
 // Sketch output
-//#define SEND_STUFF 1  // have this script send things as well
+//#define SEND_STUFF_AS_WELL 1  // have this script send things as well
 //#define SHOW_CC_STATUS 1
 
 
@@ -83,7 +83,7 @@ void setup()
     //radio.enableSerialDebug();
 
     // Start RADIO
-    while ( !radio.begin(CFREQ_868, KBPS_250, /* channel num */ 16, /* address */ THIS_DEVICE_ADDRESS, INTERRUPT_PIN /* Interrupt */) ) // channel 16! Whitening enabled 
+    while ( !radio.begin(CFREQ_868, KBPS_250, /* channel num */ 16, /* address */ THIS_DEVICE_ADDRESS, GDO0_INTERRUPT_PIN /* Interrupt */) ) // channel 16! Whitening enabled 
     {
         yield();
     }
@@ -172,7 +172,7 @@ IR temperature:	21.01
 */
     }
   
-#ifdef SEND_STUFF
+#ifdef SEND_STUFF_AS_WELL
     // Periodically send something random.
     if (now > lastSend) 
     {

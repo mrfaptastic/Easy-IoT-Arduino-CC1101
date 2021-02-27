@@ -15,8 +15,8 @@
 /**
  * Buffer and data lengths
  */
-#define CCPACKET_MAX_SIZE                   61 			// MUST BE 61 MUST = CC1101_PKTLEN (61 to accommodate CC address and 2 bytes for lqi and rssi)
-#define STREAM_PKT_OVERHEAD                 4  			// 1 Dest address, 1 num_of_packets, 1 seq_num (forms part of payload)
+#define CCPACKET_MAX_SIZE                   61 			// MUST ONLY BE 61 based on library's CC1101_PKTLEN (61 to accommodate CC address and 2 bytes for lqi & rssi)
+#define STREAM_PKT_OVERHEAD                 4  			// 1 byte destination address (CC hardware requirement!), 1 byte payload_size, 1 byte num_of_packets, 1 byte seq_num (forms part of payload)
 #define STREAM_PKT_MAX_PAYLOAD_SIZE         CCPACKET_MAX_SIZE-STREAM_PKT_OVERHEAD // Remaining payload space available = 57
 
 #define CCPACKET_REC_SIZE               CCPACKET_MAX_SIZE+2    // Payload + 2 bytes for lqi and rssi (63 bytes)

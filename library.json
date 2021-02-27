@@ -10,21 +10,13 @@
     "name": "Faptastic",
     "url": "https://github.com/mrfaptastic/"
   },
-  "version": "1.0.0",
+  "version": "1.0.2",
   "frameworks": "arduino",
   "platforms": "esp8266, esp32",
   "examples": [
-    "examples/TX_and_RX/*.ino",
-    "examples/TX_and_RX/*.cpp",
-    "examples/TX_and_RX/*.h",
-	
-    "examples/RX_from_Sensors/*.ino",
-    "examples/RX_from_Sensors/*.cpp",
-    "examples/RX_from_Sensors/*.h",	
-	
+
+    "examples/Simple_TX_and_RX/*.ino",
     "examples/AES_TX_and_RX/*.ino",
-    "examples/AES_TX_and_RX/*.cpp",
-    "examples/AES_TX_and_RX/*.h"	
 	
   ]
 }

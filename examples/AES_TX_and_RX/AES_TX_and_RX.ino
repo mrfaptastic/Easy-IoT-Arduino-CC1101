@@ -96,8 +96,8 @@ void loop()
   {
     unsigned long ms = micros ();    
   
-    recieveBuffer       = radio.receiveBytes();
-    receivedStreamSize  = radio.getStreamSize();
+    recieveBuffer       = radio.getBytes();
+    receivedStreamSize  = radio.getSize();
 
     Serial.print("We received a byte stream and it was "); Serial.print(receivedStreamSize, DEC); Serial.println(" bytes in size."); 
     //rx_payload  = String(radio.receiveBytes()); // pointer to memory location of start of string
