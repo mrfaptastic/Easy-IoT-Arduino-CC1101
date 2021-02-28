@@ -1,5 +1,5 @@
  {
-  "name": "Easy IoT with CC1101 (Low-Power Sub-1GHz LORA-like)",
+  "name": "Easy IoT with CC1101 - Sub-1GHz LORA-like",
   "keywords": "iot, esp8266, esp32, avr, cc1101, communication, transmit, receive, frequency, mesh",
   "description": "An easy to use library to send and receive messages between devices using the Texas Instruments CC1101 Low-Power Sub-1GHz RF Transceiver",
   "repository": {
