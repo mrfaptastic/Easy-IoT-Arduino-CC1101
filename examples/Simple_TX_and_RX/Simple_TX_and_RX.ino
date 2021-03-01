@@ -1,8 +1,7 @@
 #include "cc1101.h"
 
 /*******************************************************************
- * Radio and interrupt configuration
- */
+ * Radio, Device ID and Interrupt Pin configuration                */
 
 #define RADIO_CHANNEL             16
 #define THIS_DEVICE_ADDRESS       22
@@ -15,12 +14,11 @@
  *  "All of the IO pins have interrupt/pwm/I2C/one-wire support except D0"
  * 
  * CC1101 GDO2 is connected to D2 on the ESP8266
- * CC1101 GDO0 isn't connnected to anything.
+ * CC1101 GDO0 isn't connected to anything.
  * Both GDO2 and GDO0 are configured in the CC1101 to behave the same.
  *
  */
-
-// External intterupt pin for GDO0
+// External interrupt pin for GDO0
 #ifdef ESP32
   #define GDO0_INTERRUPT_PIN 13
 #elif ESP8266
@@ -29,12 +27,11 @@
   #define GDO0_INTERRUPT_PIN 5 // Digital D2 or D3 on the Arduino Nano allow external interrupts only
 #endif
 
-/*******************************************************************/
+/*******************************************************************
+ * Radio and Sketch Behaviour                                      */
 
-// Sketch output & behaviour
-
-#define SEND_STUFF 1  // have this script send things as well
-//#define SHOW_CC_STATUS 1
+#define SEND_STUFF_PERIODICALLY     1
+//#define SHOW_CC_STATUS_PERIODICALLY 1
 
 
 CC1101 radio;
@@ -49,6 +46,8 @@ String rec_payload;
 
 
 /*****************************************************************/
+/* Author's Sensor Specific Stuff. Probably of no use to you     */
+
 //https://create.arduino.cc/projecthub/Marcazzan_M/how-easy-is-it-to-use-a-thermistor-e39321
 /*thermistor parameters:
  * RT0o: 10 000 Ω
@@ -60,16 +59,12 @@ String rec_payload;
 //These values are in the datasheet
 #define RT0 100000   // Ω
 #define B 3977      // K
-//--------------------------------------
-
 
 #define VCC 3.3    //Supply voltage
 #define R 160000  //R=10KΩ
 
-
 //Variables
 float RT, VR, ln, TXX, T0o, VRT;
-
 
 
 
@@ -89,23 +84,19 @@ void setup()
     // Start RADIO
     while ( !radio.begin(CFREQ_868, KBPS_250, /* channel num */ 16, /* address */ THIS_DEVICE_ADDRESS, GDO0_INTERRUPT_PIN /* Interrupt */) ) // channel 16! Whitening enabled 
     {
-        yield();
-    }
-    
+        delay(5000); // Try again in 5 seconds
+    }   
     radio.printCConfigCheck();
     Serial.println(F("CC1101 radio initialized."));
-    delay(1000);     
-
-
     rec_payload.reserve(100);
+
+    // IMPORTANT: Kick the radio into receive mode, otherwise it will sit IDLE and be TX only.
+    radio.setRxState();
 
 }
 
 int   counter = 0;
 char  output[64] = {0};
-char * return_data;
-
-
 void loop() 
 {
     unsigned long now = millis();
@@ -120,13 +111,12 @@ void loop()
          */                               
         rec_payload  = String(radio.getChars()); // pointer to memory location of start of string
         //Serial.print("Payload size recieved: "); Serial.println(radio.getSize());
+        Serial.print("Payload received: ");
         Serial.println(rec_payload);
 
         byte *payload = radio.getBytes();
-
+        
         float battery           =  rec_payload.substring(2,4).toInt();
-        Serial.print("battery: " ); Serial.println(battery);        
-
         int movement           =  rec_payload.substring(8,14).toInt();
         //Serial.print("movement: " ); Serial.println(movement);
         
@@ -145,7 +135,10 @@ void loop()
         TXX = (1 / ((ln / B) + (1 / T0o))); //Temperature from thermistor
       
         TXX = TXX - 273.15;                 //Conversion to Celsius
-      
+  
+        Serial.print("battery: " ); Serial.println(battery);        
+
+        
         Serial.print("Temperature:");
         Serial.print("\t");
         Serial.print(TXX);
@@ -162,22 +155,23 @@ void loop()
         Serial.print("IR temperature:");
         Serial.print("\t");
         Serial.println(ir_temp);      
+       
         
  /*
-// Serial output is like:
-
-V|33|D|000196|000104|000000|000000|000000|000000|000393|0
-battery: 33
-movement: 196
-thermopile_surface_ir: 104
-thermistor_ambient_temp: 393
-Temperature:	25.04C		298.19K		77.08F
-IR temperature:	21.01
+        // Data packets from sensors like:
+        
+        V|33|D|000196|000104|000000|000000|000000|000000|000393|0
+        battery: 33
+        movement: 196
+        thermopile_surface_ir: 104
+        thermistor_ambient_temp: 393
+        Temperature:	25.04C		298.19K		77.08F
+        IR temperature:	21.01
 
 */
     }
   
-#ifdef SEND_STUFF
+#ifdef SEND_STUFF_PERIODICALLY
     // Periodically send something random.
     if (now > lastSend) 
     {
@@ -189,7 +183,7 @@ IR temperature:	21.01
     }
 #endif
 
-#ifdef SHOW_CC_STATUS
+#ifdef SHOW_CC_STATUS_PERIODICALLY
   
     if (now > lastStatusDump)
     {        

@@ -1,8 +1,8 @@
 #include "cc1101.h"
 
-// Do we want the inbuild led to flash when we send or recieve? Useful for diagnostics.
+// Do we want the inbuild led to flash when we send or receive? Useful for diagnostics.
 // Comment the below line out to turn this off.
-#define ENABLE_BUILTIN_LED 1 
+//#define ENABLE_BUILTIN_LED 1 
 
 
 // What debug and internal workings information do we want to output to Serial for debug or monitoring purposes?
@@ -221,7 +221,7 @@ bool CC1101::checkCC(void)
 
 } // check CC
 
-/* Attach the interrupt from CC1101 when packet recieved */
+/* Attach the interrupt from CC1101 when packet received */
 void CC1101::attachGDO0Interrupt(void)
 {
   if (serialDebug)
@@ -740,9 +740,9 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
 	Serial.println("");  
 */
 	
-  detachGDO0Interrupt(); // we don't want to get interrupted at this important moment in history
+  //detachGDO0Interrupt(); // we don't want to get interrupted at this important moment in history
   
-  setIdleState();       // Enter IDLE state before flushing RxFifo (don't need to do this when Overflow has occured)
+  setIdleState();       // Enter IDLE state before flushing RxFifo (don't need to do this when Overflow has occurred)
   delayMicroseconds(1);
   flushRxFifo();        // Flush Rx FIFO
 
@@ -825,7 +825,7 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
 
   } // end stream loop
 
-  attachGDO0Interrupt();
+  //attachGDO0Interrupt();
   
   if (serialDebug){
 	Serial.print((millis() - start_tm), DEC);
@@ -1357,26 +1357,28 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
 
  if ( rxOverflow )
  {
-      
+
+#ifdef SERIAL_INFO	 
+    Serial.println(F("RX was in overflow. Salvaging what we can."));
+#endif	
+
+      /*
     flushRxFifo();        // Flush Rx FIFO
   
     // Back to RX state
     setRxState();
 
     packet->payload_size = 0;
-
-#ifdef SERIAL_INFO	 
-    Serial.println(F("RX was in overflow. Flushing."));
-#endif	
     
     return packet->payload_size;   
+	*/
  }
 
 
  /**
   * STEP 2: Got the right number of bytes in RX FIFO. Might be one for us?
   */
- if ( rxBytes == CCPACKET_REC_SIZE  )
+ if ( rxBytes >= CCPACKET_REC_SIZE  ) // if we have more then it's probably due to overflow, try and salvage the CCPACKET_REC_SIZE bytes we do get
  {
 
     // Copy contents of FIFO in the buffer from CC1101 
@@ -1473,9 +1475,12 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
   /* 
    *  STEP 3: We're done, so flush the RxFIFO.
    */
-   
-  setIdleState();       // Enter IDLE state before flushing RxFifo (don't need to do this when Overflow has occured)
-  delayMicroseconds(1);
+  
+  if (!rxOverflow)  
+  {
+   setIdleState();       // Enter IDLE state before flushing RxFifo (don't need to do this when Overflow has occured)
+   delayMicroseconds(1);
+  }
   flushRxFifo();        // Flush Rx FIFO
   //cmdStrobe(CC1101_SCAL);
 
