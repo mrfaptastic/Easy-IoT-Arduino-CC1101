@@ -4,7 +4,7 @@ This is an easy to use Arduino CC1101 library (working example) to be able to co
 
 ## Buying a CC1101
 
-CC1101 modules can be bought [for a few bucks](https://www.aliexpress.com/item/CC1101-Wireless-Module-Long-Distance-Transmission-Antenna-868MHZ-M115/32635393463.html). These modules are tolerant of voltages ranging from 1.8 to 3.3 volts. If using a 5volt Arduino AVR device, you will need to use a 5V to 3.3V logic-level converter across the pins or you will FRY your CC1101.
+CC1101 modules can be bought for a few dollars. These modules are tolerant of voltages ranging from 1.8 to 3.3 volts. If using a 5 volt Arduino AVR device, you will need to use a 5V to 3.3V logic-level converter across the pins or you will FRY your CC1101.
 
 ## Using a CC1101
 
@@ -15,7 +15,7 @@ Whilst the CC1101 has some [show stopper bugs](http://www.ti.com/lit/er/swrz020e
 This library supports sending large strings/streams of data, using multiple 61 byte radio packets (that's the CC1101's underlying fixed radio packet size). However, using this functionality increases the risk of lost data - so your own packet/message acknowledgement code would be required. 
 
 ## Tested and works with
-* This [868Mhz module] bucks](https://www.aliexpress.com/item/CC1101-Wireless-Module-Long-Distance-Transmission-Antenna-868MHZ-M115/32635393463.html)
+* This [868Mhz module](https://www.aliexpress.com/item/CC1101-Wireless-Module-Long-Distance-Transmission-Antenna-868MHZ-M115/32635393463.html)
 * This [433Mhz module](https://www.aliexpress.com/item/32855767133.html)
 
 ## Installation
