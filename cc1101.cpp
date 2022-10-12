@@ -1,37 +1,7 @@
 #include "cc1101.h"
 
-// Do we want the inbuild led to flash when we send or receive? Useful for diagnostics.
-// Comment the below line out to turn this off.
-//#define ENABLE_BUILTIN_LED 1 
-
-
 // What debug and internal workings information do we want to output to Serial for debug or monitoring purposes?
 //#define SERIAL_INFO  1 
-
-
-#ifdef ESP32
-	#define LED_PIN 2
-#else
-	#define LED_PIN LED_BUILTIN
-#endif
-
-/**
-   Macros
-*/
-// Select (SPI) CC1101
-#define cc1101_Select()  digitalWrite(SS, LOW)
-// Deselect (SPI) CC1101
-#define cc1101_Deselect()  digitalWrite(SS, HIGH)
-// Wait until SPI MISO line goes low
-#define wait_Miso()  while(digitalRead(MISO)>0)
-// Get GDO0 pin state
-#define getGDO0state()  digitalRead(CC1101_GDO0_interrupt_pin)
-// Wait until GDO0 line goes high
-#define wait_GDO0_high()  while(!getGDO0state())
-// Wait until GDO0 line goes low
-#define wait_GDO0_low()  while(getGDO0state())
-
-
 
 /**
  * Global variables for packet and stream interrupts
@@ -96,14 +66,10 @@ void CC1101::configureGPIO(void)
   
 #if defined(ESP32) || defined(ESP8266)
   // Initialize SPI interface
-  SPI.setFrequency(400000);  
+  SPI.setFrequency(3250000);  
 #endif
 
   pinMode(CC1101_GDO0_interrupt_pin, INPUT);          // Config GDO0 as input
-
-#ifdef ENABLE_BUILTIN_LED
-  pinMode(LED_PIN, OUTPUT);         // Led will flash on recieve and send of packet
-#endif
 
   if (serialDebug) {
     Serial.print(F("Using ESP Pin "));
@@ -145,7 +111,6 @@ bool CC1101::begin(CFREQ freq, DATA_RATE rate, uint8_t channr, uint8_t addr, uin
   flushRxFifo();        // Flush Rx FIFO  
   flushTxFifo();     
 
-
   attachGDO0Interrupt();
 
   return checkCC();  
@@ -175,6 +140,8 @@ bool CC1101::begin(const byte regConfig[NUM_CONFIG_REGISTERS], uint8_t _int_pin)
 
   attachGDO0Interrupt();
 
+ // setOutputPowerLeveldBm(10); // max power FREND0 register config
+
   return  checkCC();
 
 }
@@ -188,7 +155,7 @@ bool CC1101::checkCC(void)
   // Do a check of the partnum
   uint8_t version = readReg(CC1101_VERSION, CC1101_STATUS_REGISTER);
 
-  if (version != 20)
+  if ( !(version == 0x14 || version == 0x04)) // wtf? Some chips from china still return 4!
   {
     detachGDO0Interrupt();
     
@@ -197,22 +164,8 @@ bool CC1101::checkCC(void)
     // Close the SPI connection
     SPI.end();
 
-    // ALERT
-#ifdef ENABLE_BUILTIN_LED    
-    digitalWrite(LED_PIN, LOW);
-#endif    
-    Serial.println(F("Error: CC1101 not detected!"));
-
+    Serial.println(F("Error: CC1101 not detected! (Invalid version)"));
     return false;
-    /*
-    bool led_state = 0;
-    while (1)
-    {
-       Serial.println(F("CC1101 not detected!"));
-       delay(1000);
-       digitalWrite(LED_BUILTIN, led_state ^= 1);
-    } 
-    */      
 
   }
 
@@ -278,11 +231,11 @@ void CC1101::writeReg(byte regAddr, byte value)
 {
   byte status;
 
-  _NOP(); _NOP(); _NOP(); _NOP();  _NOP(); _NOP(); _NOP(); _NOP(); _NOP();   // HACK2
-
   // Print extra info when we're writing to CC register
   if (regAddr <= CC1101_TEST0) // for some reason when this is disable config writes don't work!!
   {
+#ifdef SERIAL_INFO
+
     char reg_name[16] = {0};
     strcpy_P(reg_name, CC1101_CONFIG_REGISTER_NAME[regAddr]);
     Serial.print(F("Writing to CC1101 reg "));
@@ -294,22 +247,23 @@ void CC1101::writeReg(byte regAddr, byte value)
     Serial.println(value, HEX);
     //    Serial.print(F(" value (DEC) "));
     //    Serial.println(value, DEC);
-	
-	// Store the configuration state we requested the CC1101 to be
-	currentConfig[regAddr] = value;	
+#endif	
+      // Store the configuration state we requested the CC1101 to be
+      currentConfig[regAddr] = value;	
   }
   
 
   cc1101_Select();                      // Select CC1101
+
   wait_Miso();                          // Wait until MISO goes low
   
   readCCStatus(SPI.transfer(regAddr));  // Send register address
-  //delayMicroseconds(1);   // HACK
-  _NOP(); _NOP(); _NOP(); _NOP();  _NOP(); _NOP(); _NOP(); _NOP(); _NOP();   // HACK2
+  delayMicroseconds(2);   // HACK
   readCCStatus(SPI.transfer(value));    // Send value
+  delayMicroseconds(2);   // HACK
 
   cc1101_Deselect();                    // Deselect CC1101
-  delay(1);
+  delay(2);
 
 
 
@@ -374,8 +328,8 @@ byte CC1101::readReg(byte regAddr, byte regType)
   cc1101_Select();                      // Select CC1101
   wait_Miso();                          // Wait until MISO goes low
   SPI.transfer(addr);                   // Send register address
-  delayMicroseconds(1);  // HACK
-  _NOP(); _NOP(); _NOP(); _NOP();_NOP(); _NOP(); _NOP(); _NOP();_NOP(); _NOP(); _NOP(); _NOP();_NOP(); _NOP(); _NOP(); _NOP(); // HACK2
+ // delayMicroseconds(1);  // HACK
+ // _NOP(); _NOP(); _NOP(); _NOP();_NOP(); _NOP(); _NOP(); _NOP();_NOP(); _NOP(); _NOP(); _NOP();_NOP(); _NOP(); _NOP(); _NOP(); // HACK2
   val = SPI.transfer(0x00);             // Read result
   cc1101_Deselect();                    // Deselect CC1101
 
@@ -479,32 +433,23 @@ void CC1101::setCCregs(void)
   // Set default frequency channel
   setChannel(channel);
 
-  // Modem freq. control stuff
-  //writeReg(CC1101_FSCTRL1,  CC1101_DEFVAL_FSCTRL1);
-  writeReg(CC1101_FSCTRL0,  CC1101_DEFVAL_FSCTRL0);
-
-  // Set default carrier frequency = 868 MHz
+  // Set default carrier frequency
   setCarrierFreq(carrierFreq);
 
-  // Modem, behaviour
+  // Common between frequencies and bandwidths (from manual analysis)
   writeReg(CC1101_MCSM2,    CC1101_DEFVAL_MCSM2);
   writeReg(CC1101_MCSM1,    CC1101_DEFVAL_MCSM1);
   writeReg(CC1101_MCSM0,    CC1101_DEFVAL_MCSM0);
 
-  // Stuff that's most certainly going to get overwritten by dataRate specific stuff.
-  //writeReg(CC1101_MDMCFG3,  CC1101_DEFVAL_MDMCFG3);
-  writeReg(CC1101_MDMCFG2,  CC1101_DEFVAL_MDMCFG2);
-  writeReg(CC1101_MDMCFG1,  CC1101_DEFVAL_MDMCFG1);
-  writeReg(CC1101_MDMCFG0,  CC1101_DEFVAL_MDMCFG0);
-  //writeReg(CC1101_DEVIATN,  CC1101_DEFVAL_DEVIATN);
-  //writeReg(CC1101_FOCCFG,  CC1101_DEFVAL_FOCCFG);
-  writeReg(CC1101_BSCFG,  CC1101_DEFVAL_BSCFG);
-  writeReg(CC1101_AGCCTRL2,  CC1101_DEFVAL_AGCCTRL2);
-  writeReg(CC1101_AGCCTRL1,  CC1101_DEFVAL_AGCCTRL1);
-  writeReg(CC1101_AGCCTRL0,  CC1101_DEFVAL_AGCCTRL0);
-
-  writeReg(CC1101_FREND1,  CC1101_DEFVAL_FREND1);
   writeReg(CC1101_FREND0,  CC1101_DEFVAL_FREND0);
+
+  writeReg(CC1101_WOREVT1,  CC1101_DEFVAL_WOREVT1);
+  writeReg(CC1101_WOREVT0,  CC1101_DEFVAL_WOREVT0);
+  writeReg(CC1101_WORCTRL,  CC1101_DEFVAL_WORCTRL);
+
+  writeReg(CC1101_RCCTRL1,  CC1101_DEFVAL_RCCTRL1);
+  writeReg(CC1101_RCCTRL0,  CC1101_DEFVAL_RCCTRL0);
+
 
 
   // Data Rate - details extracted from SmartRF Studio
@@ -515,10 +460,14 @@ void CC1101::setCCregs(void)
       if (serialDebug)
         Serial.print(F("250kbps data rate"));
 
+      writeReg(CC1101_FSCTRL0, 0x21);
       writeReg(CC1101_FSCTRL1, 0x0C); // Frequency Synthesizer Control (optimised for sensitivity)
       writeReg(CC1101_MDMCFG4, 0x2D); // Modem Configuration      
       writeReg(CC1101_MDMCFG3, 0x3B); // Modem Configuration
-      //writeReg(CC1101_MDMCFG2, 0x93); // Modem Configuration
+      writeReg(CC1101_MDMCFG2,  0x13);
+      writeReg(CC1101_MDMCFG1,  0x22);
+      writeReg(CC1101_MDMCFG0,  0xF8);
+
       writeReg(CC1101_DEVIATN, 0x62); // Modem Deviation Setting
       writeReg(CC1101_FOCCFG, 0x1D); // Frequency Offset Compensation Configuration
       writeReg(CC1101_BSCFG, 0x1C); // Bit Synchronization Configuration
@@ -526,56 +475,43 @@ void CC1101::setCCregs(void)
       writeReg(CC1101_AGCCTRL1, 0x00); // AGC Control
       writeReg(CC1101_AGCCTRL0, 0xB0); // AGC Control
       writeReg(CC1101_FREND1, 0xB6); // Front End RX Configuration
+
+      writeReg(CC1101_FSCAL3,  0xEA);
       break;
-
-    case KBPS_38:
-
-      if (serialDebug)
-        Serial.print(F("38kbps data rate"));
-
-      writeReg(CC1101_FSCTRL1, 0x06); // Frequency Synthesizer Control
-      writeReg(CC1101_MDMCFG4, 0xCA); // Modem Configuration      
-      writeReg(CC1101_MDMCFG3, 0x83); // Modem Configuration
-      //writeReg(CC1101_MDMCFG2, 0x93); // Modem Configuration
-      writeReg(CC1101_DEVIATN, 0x35); // Modem Deviation Setting
-      writeReg(CC1101_FOCCFG, 0x16); // Frequency Offset Compensation Configuration
-      writeReg(CC1101_AGCCTRL2, 0x43); // AGC Control
-      break;
-
+/*
     case KBPS_4:
 
       if (serialDebug)
-        Serial.print(F("4kbps data rate"));
+        Serial.print(F("4kbps data rate (sensitivity)"));
 
+      writeReg(CC1101_FSCTRL0, 0x00); // (optimised for sensitivity)
       writeReg(CC1101_FSCTRL1, 0x06); // Frequency Synthesizer Control
       writeReg(CC1101_MDMCFG4, 0xC7); // Modem Configuration      
       writeReg(CC1101_MDMCFG3, 0x83); // Modem Configuration
-      //writeReg(CC1101_MDMCFG2, 0x93); // Modem Configuration
-      writeReg(CC1101_DEVIATN, 0x40); // Modem Deviation Setting
-      writeReg(CC1101_FOCCFG, 0x16); // Frequency Offset Compensation Configuration
+      writeReg(CC1101_MDMCFG2,  0x13);
+      writeReg(CC1101_MDMCFG1,  0x22);
+      writeReg(CC1101_MDMCFG0,  0xF8);        
+
+      writeReg(CC1101_DEVIATN,  0x40); // Modem Deviation Setting
+      writeReg(CC1101_FOCCFG,   0x16); // Frequency Offset Compensation Configuration
+      writeReg(CC1101_BSCFG,    0x6C); // Bit Synchronization Configuration
       writeReg(CC1101_AGCCTRL2, 0x43); // AGC Control
+      writeReg(CC1101_AGCCTRL1, 0x40); // AGC Control
+      writeReg(CC1101_AGCCTRL0, 0x91); // AGC Control
+      
+      writeReg(CC1101_FREND0, 0x10); // Front End RX Configuration           
+      writeReg(CC1101_FREND1, 0x56); // Front End RX Configuration      
+
+      writeReg(CC1101_FSCAL3,  0xE9);      
+
       break;
+      */
   }
 
-
-  // Other defaults
-  writeReg(CC1101_WOREVT1,  CC1101_DEFVAL_WOREVT1);
-  writeReg(CC1101_WOREVT0,  CC1101_DEFVAL_WOREVT0);
-  writeReg(CC1101_WORCTRL,  CC1101_DEFVAL_WORCTRL);
-
-  writeReg(CC1101_FSCAL3,  CC1101_DEFVAL_FSCAL3);
-  writeReg(CC1101_FSCAL2,  CC1101_DEFVAL_FSCAL2);
-  writeReg(CC1101_FSCAL1,  CC1101_DEFVAL_FSCAL1);
+  
   writeReg(CC1101_FSCAL0,  CC1101_DEFVAL_FSCAL0);
-
-  writeReg(CC1101_RCCTRL1,  CC1101_DEFVAL_RCCTRL1);
-  writeReg(CC1101_RCCTRL0,  CC1101_DEFVAL_RCCTRL0);
-  //writeReg(CC1101_FSTEST,  CC1101_DEFVAL_FSTEST);
-  //writeReg(CC1101_PTEST,  CC1101_DEFVAL_PTEST);
-  //writeReg(CC1101_AGCTEST,  CC1101_DEFVAL_AGCTEST);
-  //writeReg(CC1101_TEST2,  CC1101_DEFVAL_TEST2);
-  //writeReg(CC1101_TEST1,  CC1101_DEFVAL_TEST1);
-  //writeReg(CC1101_TEST0,  CC1101_DEFVAL_TEST0);
+  writeReg(CC1101_FSCAL1,  CC1101_DEFVAL_FSCAL1);
+  writeReg(CC1101_FSCAL2,  CC1101_DEFVAL_FSCAL2);
 
   // Send empty packet (which won't actually send a packet, but will flush the Rx FIFO only.)
   CCPACKET packet;
@@ -807,7 +743,7 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
     while (tries++ < 3 && ((sendStatus = sendPacket(packet)) != true) )
     {
       Serial.println(F("Failed to send byte packet. Retrying. "));
-      delay(10); // random delay interval
+      delay(25); // random delay interval
     }
 
     if ( !sendStatus )
@@ -853,9 +789,6 @@ bool CC1101::sendPacket(CCPACKET packet)
     byte txBytes, txOverflow;  
 	bool res = false;
 
-#ifdef ENABLE_BUILTIN_LED
-  digitalWrite(LED_PIN, LOW);
-#endif
 
  /**
   * STEP 0: Build the radio packet of stuff to send
@@ -1061,12 +994,6 @@ bool CC1101::sendPacket(CCPACKET packet)
 			Serial.println(F(">>> TX COMPLETED SUCCESSFULLY."));
 	}	
 	
-
-
-#ifdef ENABLE_BUILTIN_LED
-  digitalWrite(LED_PIN, HIGH);
-#endif
-
 	return res;
 }
 
@@ -1098,15 +1025,15 @@ bool CC1101::dataAvailable(void)
   {
 	  // A double layer of protection every 5 seconds or so
 	  // CC1100 will seemingly just randomly stop sending interrupts when RX FIFO full.
-	  if ( (millis() - last_CCState_check) > 5000)
-	  {
+//	  if ( (millis() - last_CCState_check) > 5000)
+//	  {
 		byte rxBytes = readStatusRegSafe(CC1101_RXBYTES) & 0b01111111;
-		if (rxBytes > 60) 
+		if (rxBytes > 55) 
 		{
 			packetReceived = true;
 			last_CCState_check = millis();
 		}
-	  } 
+//  } 
 	  
 	  return false;
   }
@@ -1302,9 +1229,6 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
   Serial.println(channel, DEC);
 #endif  
 
-#ifdef ENABLE_BUILTIN_LED
-  digitalWrite(LED_PIN, LOW);  
-#endif
   if (currentConfig[CC1101_IOCFG0] == 0x06) //if sync word detect mode is used
   {
     if (serialDebug)
@@ -1317,7 +1241,7 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
   _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); 
 
   
-  rxBytes = readStatusReg(CC1101_RXBYTES); // Unread bytes in RX FIFO according to CC1101. TODO: Need to do this safely
+  rxBytes = readStatusRegSafe(CC1101_RXBYTES); // Unread bytes in RX FIFO according to CC1101. TODO: Need to do this safely
   /*
   // as per: http://e2e.ti.com/support/wireless-connectivity/other-wireless/f/667/t/334528?CC1101-Random-RX-FIFO-Overflow
   do
@@ -1378,7 +1302,7 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
  /**
   * STEP 2: Got the right number of bytes in RX FIFO. Might be one for us?
   */
- if ( rxBytes >= CCPACKET_REC_SIZE  ) // if we have more then it's probably due to overflow, try and salvage the CCPACKET_REC_SIZE bytes we do get
+ if ( rxBytes <= CCPACKET_REC_SIZE  ) // if we have more then it's probably due to overflow, try and salvage the CCPACKET_REC_SIZE bytes we do get
  {
 
     // Copy contents of FIFO in the buffer from CC1101 
@@ -1413,13 +1337,10 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
 #ifdef SERIAL_INFO
      if (packet->cc_dest_address == BROADCAST_ADDRESS)
       Serial.println(F("* Received broadcast packet"));
-#endif	  
-     
-    if (serialDebug)
-    {
+
       Serial.print(F("Payload size is: "));
       Serial.println(packet->payload_size, DEC);
-    }
+#endif	
 
     // The payload size contained within this radio packet is too big?
     if ( packet->payload_size > STREAM_PKT_MAX_PAYLOAD_SIZE ) 
@@ -1507,10 +1428,6 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
   Serial.printf("Took %d milliseconds to complete recievePacket()\n", (millis() - start_tm));
 #endif  
 
-#ifdef ENABLE_BUILTIN_LED
-  digitalWrite(LED_PIN, HIGH);
-#endif
-
   return packet->payload_size;
 }
 
@@ -1541,7 +1458,7 @@ void CC1101::setTxState(void)
  */
 void CC1101::setOutputPowerLeveldBm(int8_t dBm)
 {	
-    uint8_t pa_table_index 	= 4; // use entry 4 of the patable_power_XXX static array. i.e. dBm of 0
+  uint8_t pa_table_index 	= 4; // use entry 4 of the patable_power_XXX static array. i.e. dBm of 0
 	uint8_t pa_value 		= 0x50;
 
 	// Calculate the index offset of our pa table values
@@ -1828,74 +1745,3 @@ void CC1101::printMarcstate(void)
       }
 
 }
-
-
-
-/**
-   writeBurstReg
-
-   Write multiple registers into the CC1101 IC via SPI
-
-   BUG: Doesn't seem to work when writing to configuration registers
-        Breaks the CC1101. Might be ESP SPI issue.
-
-   'regAddr'  Register address
-   'buffer' Data to be writen
-   'len'  Data length
-*/
-/*
-void CC1101::writeBurstReg(byte regAddr, byte* buffer, byte len)
-{
-  byte addr, i;
-
-  if (serialDebug)
-  {
-    Serial.println(F("Performing writeBurstReg."));
-  }
-
-  addr = regAddr | WRITE_BURST;         // Enable burst transfer
-  cc1101_Select();                      // Select CC1101
-  wait_Miso();                          // Wait until MISO goes low
-  SPI.transfer(addr);                   // Send register address
-
-  for (i = 0 ; i < len ; i++)
-    SPI.transfer(buffer[i]);            // Send values
-
-  cc1101_Deselect();                    // Deselect CC1101
-}
-*/
-
-
-/**
-   readBurstReg
-
-   Read burst data from CC1101 via SPI
-
-   'buffer' Buffer where to copy the result to
-   'regAddr'  Register address
-   'len'  Data length
-
-   BUG: Not reliable on ESP8266. SPI timing issues.
-*/
-/*
-void CC1101::readBurstReg(byte * buffer, byte regAddr, byte len)
-{
-  byte addr, i;
-
-  if (serialDebug)
-  {
-    Serial.println(F("Performing readBurstReg"));
-  }
-
-  addr = regAddr | READ_BURST;
-  cc1101_Select();                      // Select CC1101
-  wait_Miso();                          // Wait until MISO goes low
-  SPI.transfer(addr);                   // Send register address
-  for (i = 0 ; i < len ; i++)
-    buffer[i] = SPI.transfer(0x00);     // Read result byte by byte
-  cc1101_Deselect();                    // Deselect CC1101
-
-  if (serialDebug)
-    Serial.printf("Read %d bytes.\n", len);      
-}
-*/

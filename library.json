@@ -4,19 +4,16 @@
   "description": "An easy to use library to send and receive messages between devices using the Texas Instruments CC1101 Low-Power Sub-1GHz RF Transceiver",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mrfaptastic/Easy-IoT-Arduino-CC1101-LORA.git"
+    "url": "https://github.com/mrfaptastic/Easy-IoT-Arduino-CC1101.git"
   },
   "authors": {
     "name": "Faptastic",
     "url": "https://github.com/mrfaptastic/"
   },
-  "version": "1.0.4",
+  "version": "1.0.5",
   "frameworks": "arduino",
   "platforms": "*",
   "examples": [
-
-    "examples/Simple_TX_and_RX/*.ino",
-    "examples/AES_TX_and_RX/*.ino",
 	
   ]
 }

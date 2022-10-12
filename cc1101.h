@@ -30,8 +30,7 @@ enum CFREQ
 enum DATA_RATE
 {
   KBPS_250,
-  KBPS_38,
-  KBPS_4
+  // KBPS_4 // doesn't work
 };
 
 /**
@@ -267,9 +266,10 @@ static uint8_t currentConfig[NUM_CONFIG_REGISTERS];
  *       value below according to the configured frequency and requested dBm (aka. This is a config lookup matrix of sorts).
  */
                             //Patable index: -30  -20  -15  -10    0    5    7   10 dBm
-static uint8_t patable_power_433[] = {0x6C,0x1C,0x06,0x3A,0x51,0x85,0xC8,0xC0};
-static uint8_t patable_power_868[] = {0x03,0x17,0x1D,0x26,0x50,0x86,0xCD,0xC0};
-static uint8_t patable_power_9XX[] = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
+static uint8_t patable_power_315[]  = {0x17,0x1D,0x26,0x69,0x51,0x86,0xCC,0xC3};
+static uint8_t patable_power_433[]  = {0x6C,0x1C,0x06,0x3A,0x51,0x85,0xC8,0xC0};
+static uint8_t patable_power_868[]  = {0x03,0x17,0x1D,0x26,0x50,0x86,0xCD,0xC0};
+static uint8_t patable_power_9XX[]  = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
 
 
 /**
@@ -288,8 +288,6 @@ static uint8_t patable_power_9XX[] = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
 #define CC1101_DEFVAL_CHANNR     0x00        // Channel Number - The 8-bit unsigned channel number, which is multiplied by the channel spacing setting and added to the base frequency.
 
 // ****** START: Configuration Settings that can change depending on FREQ / Data Rate (Modulation)
-  #define CC1101_DEFVAL_FSCTRL1    0x21        // Frequency Synthesizer Control
-  #define CC1101_DEFVAL_FSCTRL0    0x00        // Frequency Synthesizer Control
   
   // Carrier frequency = 433 MHz
   #define CC1101_DEFVAL_FREQ2_433  0x10        // Frequency Control Word, High Byte
@@ -307,32 +305,39 @@ static uint8_t patable_power_9XX[] = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
   #define CC1101_DEFVAL_FREQ0_922  0x27        // Frequency Control Word, Low Byte 
   
   // The MDMCFG values will change depending on bitrate
+  /*
   #define CC1101_DEFVAL_MDMCFG4    0x2D        // Modem Configuration - For 250kbps
   #define CC1101_DEFVAL_MDMCFG3    0x3B        // Modem Configuration - For 250kbps
   #define CC1101_DEFVAL_MDMCFG2    0x13        // Modem Configuration - For 250kbps    (doesn't change)
   #define CC1101_DEFVAL_MDMCFG1    0x22        // Modem Configuration - FEC / Preamble (doesn't change)
   #define CC1101_DEFVAL_MDMCFG0    0xF8        // Modem Configuration - Channel Spacing (apparently the same across bands - doesn't change)
+  */
   
   #define CC1101_DEFVAL_DEVIATN    0x35        // Modem Deviation Setting (default for 38.4kbaud)
   
   // These won't change - Modem behaviour. Irrelevant to freq / bitrate
   #define CC1101_DEFVAL_MCSM2      0x07        // Main Radio Control State Machine Configuration  // Stay in RX until end of packet.
   //#define CC1101_DEFVAL_MCSM1      0x30        // Main Radio Control State Machine Configuration  // What do do after a packet is sent or recieved. 0x30 = go to idle, 0x33 - switch to rx after tx 
-  #define CC1101_DEFVAL_MCSM1      0x33        // Main Radio Control State Machine Configuration  // What do do after a packet is sent or recieved. 0x30 = go to idle, 0x33 - switch to rx after tx 
+  #define CC1101_DEFVAL_MCSM1      0x3F        // Main Radio Control State Machine Configuration  // What do do after a packet is sent or recieved. 0x30 = go to idle, 0x3F - switch to rx after tx 
   #define CC1101_DEFVAL_MCSM0      0x18        // Main Radio Control State Machine Configuration
   
   // These might change with freq / bitrate
   #define CC1101_DEFVAL_FOCCFG     0x16        // Frequency Offset Compensation Configuration
-  #define CC1101_DEFVAL_BSCFG      0x6C        // Bit Synchronization Configuration
+  //#define CC1101_DEFVAL_BSCFG      0x6C        // Bit Synchronization Configuration
+/*
   #define CC1101_DEFVAL_AGCCTRL2   0x43        // AGC Control
   #define CC1101_DEFVAL_AGCCTRL1   0x40        // AGC Control
   #define CC1101_DEFVAL_AGCCTRL0   0x91        // AGC Control
+  */
   #define CC1101_DEFVAL_WOREVT1    0x87        // High Byte Event0 Timeout
   #define CC1101_DEFVAL_WOREVT0    0x6B        // Low Byte Event0 Timeout
   #define CC1101_DEFVAL_WORCTRL    0xFB        // Wake On Radio Control
-  #define CC1101_DEFVAL_FREND1     0xB6        // Front End RX Configuration
+  
+  //#define CC1101_DEFVAL_FREND1     0xB6        // Front End RX Configuration
   #define CC1101_DEFVAL_FREND0     0x10        // Front End TX Configuration
-  #define CC1101_DEFVAL_FSCAL3     0xEA        // Frequency Synthesizer Calibration
+  
+
+  //#define CC1101_DEFVAL_FSCAL3     0xE9        // Frequency Synthesizer Calibration 0xEA
   #define CC1101_DEFVAL_FSCAL2     0x2A        // Frequency Synthesizer Calibration
   #define CC1101_DEFVAL_FSCAL1     0x00        // Frequency Synthesizer Calibration
   #define CC1101_DEFVAL_FSCAL0     0x1F        // Frequency Synthesizer Calibration
@@ -341,24 +346,33 @@ static uint8_t patable_power_9XX[] = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
 #define CC1101_DEFVAL_RCCTRL1    0x41        // RC Oscillator Configuration
 #define CC1101_DEFVAL_RCCTRL0    0x00        // RC Oscillator Configuration
 
-//#define CC1101_DEFVAL_FSTEST     0x59        // Frequency Synthesizer Calibration Control
-//#define CC1101_DEFVAL_PTEST      0x7F        // Production Test
-//#define CC1101_DEFVAL_AGCTEST    0x3F        // AGC Test
-//#define CC1101_DEFVAL_TEST2      0x81        // Various Test Settings
-//#define CC1101_DEFVAL_TEST1      0x35        // Various Test Settings
-//#define CC1101_DEFVAL_TEST0      0x09        // Various Test Settings
-
 /**
  * Alias for some default values
  */
-#define CCDEF_CHANNR  CC1101_DEFVAL_CHANNR
-#define CCDEF_SYNC0  CC1101_DEFVAL_SYNC0
-#define CCDEF_SYNC1  CC1101_DEFVAL_SYNC1
-#define CCDEF_ADDR  CC1101_DEFVAL_ADDR
 
-/**
- * Macros
- */
+/*
+#define CCDEF_CHANNR  CC1101_DEFVAL_CHANNR
+#define CCDEF_SYNC0   CC1101_DEFVAL_SYNC0
+#define CCDEF_SYNC1   CC1101_DEFVAL_SYNC1
+#define CCDEF_ADDR    CC1101_DEFVAL_ADDR
+*/
+
+/*****************************************************************************
+   Macros (hard coded to use relevant Arduino platform's SPI PINs i.e. 'SS')
+******************************************************************************/
+// Select (SPI) CC1101 
+#define cc1101_Select()  digitalWrite(SS, LOW)
+// Deselect (SPI) CC1101
+#define cc1101_Deselect()  digitalWrite(SS, HIGH)
+// Wait until SPI MISO line goes low
+#define wait_Miso()  while(digitalRead(MISO)>0)
+// Get GDO0 pin state
+#define getGDO0state()  digitalRead(CC1101_GDO0_interrupt_pin)
+// Wait until GDO0 line goes high
+#define wait_GDO0_high()  while(!getGDO0state())
+// Wait until GDO0 line goes low
+#define wait_GDO0_low()  while(getGDO0state())
+
 // Read CC1101 Config register
 #define readConfigReg(regAddr)    readReg(regAddr, CC1101_CONFIG_REGISTER)
 // Read CC1101 Status register
