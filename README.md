@@ -14,6 +14,10 @@ Whilst the CC1101 has some [show stopper bugs](http://www.ti.com/lit/er/swrz020e
 
 This library supports sending large strings/streams of data, using multiple 61 byte radio packets (that's the CC1101's underlying fixed radio packet size). However, using this functionality increases the risk of lost data - so your own packet/message acknowledgement code would be required. 
 
+## Tested and works with
+* This [868Mhz module] bucks](https://www.aliexpress.com/item/CC1101-Wireless-Module-Long-Distance-Transmission-Antenna-868MHZ-M115/32635393463.html)
+* This [433Mhz module](https://www.aliexpress.com/item/32855767133.html)
+
 ## Installation
 
 Pull this repository, and load the .ino file onto two ESP8266 devices with the opposite sending/receiving addresses configured (refer to the sketch code).
