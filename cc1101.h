@@ -30,7 +30,7 @@ enum CFREQ
 enum DATA_RATE
 {
   KBPS_250,
-  // KBPS_4 // doesn't work
+  KBPS_1 // doesn't work
 };
 
 /**
@@ -336,11 +336,12 @@ static uint8_t patable_power_9XX[]  = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
   //#define CC1101_DEFVAL_FREND1     0xB6        // Front End RX Configuration
   #define CC1101_DEFVAL_FREND0     0x10        // Front End TX Configuration
   
-
+/*
   //#define CC1101_DEFVAL_FSCAL3     0xE9        // Frequency Synthesizer Calibration 0xEA
   #define CC1101_DEFVAL_FSCAL2     0x2A        // Frequency Synthesizer Calibration
   #define CC1101_DEFVAL_FSCAL1     0x00        // Frequency Synthesizer Calibration
   #define CC1101_DEFVAL_FSCAL0     0x1F        // Frequency Synthesizer Calibration
+  */
 // ****** END: Configuration Settings that will change depending on FREQ / Data Rate (Modulation)
 
 #define CC1101_DEFVAL_RCCTRL1    0x41        // RC Oscillator Configuration

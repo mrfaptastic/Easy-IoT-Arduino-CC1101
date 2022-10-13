@@ -465,7 +465,7 @@ void CC1101::setCCregs(void)
       writeReg(CC1101_MDMCFG4, 0x2D); // Modem Configuration      
       writeReg(CC1101_MDMCFG3, 0x3B); // Modem Configuration
       writeReg(CC1101_MDMCFG2,  0x13);
-      writeReg(CC1101_MDMCFG1,  0x22);
+      writeReg(CC1101_MDMCFG1,  0x22); // fec disabled, 4 bytes preamble
       writeReg(CC1101_MDMCFG0,  0xF8);
 
       writeReg(CC1101_DEVIATN, 0x62); // Modem Deviation Setting
@@ -477,42 +477,47 @@ void CC1101::setCCregs(void)
       writeReg(CC1101_FREND1, 0xB6); // Front End RX Configuration
 
       writeReg(CC1101_FSCAL3,  0xEA);
+      writeReg(CC1101_FSCAL0,  0x2A);
+      writeReg(CC1101_FSCAL1,  0x00);
+      writeReg(CC1101_FSCAL2,  0x1F);
+
+
       break;
-/*
-    case KBPS_4:
+
+    case KBPS_1:
 
       if (serialDebug)
         Serial.print(F("4kbps data rate (sensitivity)"));
 
       writeReg(CC1101_FSCTRL0, 0x00); // (optimised for sensitivity)
       writeReg(CC1101_FSCTRL1, 0x06); // Frequency Synthesizer Control
-      writeReg(CC1101_MDMCFG4, 0xC7); // Modem Configuration      
+
+      writeReg(CC1101_MDMCFG4, 0xF5); // Modem Configuration      
       writeReg(CC1101_MDMCFG3, 0x83); // Modem Configuration
-      writeReg(CC1101_MDMCFG2,  0x13);
-      writeReg(CC1101_MDMCFG1,  0x22);
+      writeReg(CC1101_MDMCFG2,  0x93); // sync word
+      writeReg(CC1101_MDMCFG1,  0x22); // fec disabled, 4 bytes preamble
       writeReg(CC1101_MDMCFG0,  0xF8);        
 
-      writeReg(CC1101_DEVIATN,  0x40); // Modem Deviation Setting
-      writeReg(CC1101_FOCCFG,   0x16); // Frequency Offset Compensation Configuration
+      writeReg(CC1101_DEVIATN,  0x15); // Modem Deviation Setting
+      writeReg(CC1101_FOCCFG,   0x36); // Frequency Offset Compensation Configuration
       writeReg(CC1101_BSCFG,    0x6C); // Bit Synchronization Configuration
-      writeReg(CC1101_AGCCTRL2, 0x43); // AGC Control
+      writeReg(CC1101_AGCCTRL2, 0x03); // AGC Control
       writeReg(CC1101_AGCCTRL1, 0x40); // AGC Control
       writeReg(CC1101_AGCCTRL0, 0x91); // AGC Control
       
       writeReg(CC1101_FREND0, 0x10); // Front End RX Configuration           
       writeReg(CC1101_FREND1, 0x56); // Front End RX Configuration      
 
-      writeReg(CC1101_FSCAL3,  0xE9);      
+      writeReg(CC1101_FSCAL3,  0xA9);
+      writeReg(CC1101_FSCAL2,  0x0A);     
+      writeReg(CC1101_FSCAL1,  0x00);
+      writeReg(CC1101_FSCAL0,  0x0D);
 
       break;
-      */
+      
   }
 
   
-  writeReg(CC1101_FSCAL0,  CC1101_DEFVAL_FSCAL0);
-  writeReg(CC1101_FSCAL1,  CC1101_DEFVAL_FSCAL1);
-  writeReg(CC1101_FSCAL2,  CC1101_DEFVAL_FSCAL2);
-
   // Send empty packet (which won't actually send a packet, but will flush the Rx FIFO only.)
   CCPACKET packet;
   packet.payload_size = 0;
@@ -853,9 +858,9 @@ bool CC1101::sendPacket(CCPACKET packet)
 		//
 		
 		setRxState();
-		
+		delay(2);
 	}
-	if (tries >= 100) 
+	if (tries >= 200) 
 	{
 		// TODO: MarcState sometimes never enters the expected state; this is a hack workaround.
 		return false;
@@ -976,7 +981,10 @@ bool CC1101::sendPacket(CCPACKET packet)
     {
 		Serial.print(F("Bytes remaining in TX FIFO (should be zero):"));
 		Serial.println((readStatusRegSafe(CC1101_TXBYTES) & 0x7F), DEC);		
-	}
+	  }
+
+    // Wait until it has been sent before failing
+    while ((readStatusRegSafe(CC1101_TXBYTES) & 0x7F) > 0) { }
 
 	// Check that the TX FIFO is empty
 	if ((readStatusRegSafe(CC1101_TXBYTES) & 0x7F) == 0)
@@ -990,9 +998,9 @@ bool CC1101::sendPacket(CCPACKET packet)
 	
     if (serialDebug)
     {
-		if (res == true) 
-			Serial.println(F(">>> TX COMPLETED SUCCESSFULLY."));
-	}	
+      if (res == true) 
+        Serial.println(F(">>> TX COMPLETED SUCCESSFULLY."));
+	  }	
 	
 	return res;
 }
