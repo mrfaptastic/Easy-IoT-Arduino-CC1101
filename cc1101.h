@@ -30,7 +30,7 @@ enum CFREQ
 enum DATA_RATE
 {
   KBPS_250,
-  KBPS_1 // doesn't work
+  KBPS_1
 };
 
 /**
