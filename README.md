@@ -24,7 +24,7 @@ Pull this repository, and load the .ino file onto two ESP8266 devices with the o
 
 ## Connecting your ESP 8266 (example)
 
-Use the standard SPI ports to connect to the SPI pins (MOSI, MISO, CLK, SS) + VCC, GND on the CC1101 module. For example, with the Wemos D1 Mini (ESP8266 Chip). GDO/GDO2 pins of a CC1101 module are NOT used by this library.
+Use the standard SPI ports to connect to the SPI pins (MOSI, MISO, CLK, SS) + VCC, GND on the CC1101 module. GDO/GDO2 pins of a CC1101 module are NOT used by this library - no connection required.
 
 ![CC1101 Module Pins](CC1101-WemosD1Mini-Pins.jpg)
 
