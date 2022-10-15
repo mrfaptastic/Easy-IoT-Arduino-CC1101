@@ -28,7 +28,7 @@ Use the standard SPI ports to connect to the 8 pins on the CC1101 module. For ex
 
 ![CC1101 Module Pins](CC1101-WemosD1Mini-Pins.jpg)
 
-![CC1101 Module Pins](CC1101-WemosD1Mini.jpg)
+GDO/GDO2 pins of a CC1101 module to NOT need to be connected. This library does not use these.
 
 Example serial output with debugging:
 ```
