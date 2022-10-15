@@ -27,10 +27,16 @@ enum CFREQ
 /** 
  *  Data Rate
  */
+
+// Low bandwidth datarates just don't work, yet another bug in the CC1101? Last 5 bytes are usually garbage / CRC fails.
 enum DATA_RATE
 {
-  KBPS_250,
+  KBPS_250
+
+  /*
+  ,
   KBPS_1
+  */
 };
 
 /**
@@ -53,7 +59,7 @@ enum CC_STATE
 /**
  * Miscellaneous
  */
-#define CRYSTAL_FREQUENCY         26000000
+#define CRYSTAL_FREQUENCY          
 #define FIFOBUFFER                0x42  //size of Fifo Buffer
 #define RSSI_OFFSET_868MHZ        0x4E  //dec = 74
 #define BROADCAST_ADDRESS         0x00  //broadcast address
@@ -212,7 +218,7 @@ enum CC_STATE
  * RX/TXBYTES Status Byte Masks
  */
 #define BYTES_IN_FIFO         0x7F // bitmask to get number in FIFO (first 7 bits)
-#define OVERFLOW_IN_FIFO      0x80 // byte number in RXfifo
+#define OVERFLOW_IN_FIFO      0x80 // byte number in RXfifo as well
 
 
 /**
@@ -275,14 +281,14 @@ static uint8_t patable_power_9XX[]  = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
 /**
  * CC1101 generic configuration defaults - will need to be overwritten!
  */
-#define CC1101_DEFVAL_IOCFG2     0x06        // GDO2 Output Pin Configuration - used to interrupt on packet received! (either use this pin on the CC or GDO0/IOCFG0)
-#define CC1101_DEFVAL_IOCFG1     0x2E        // GDO1 Output Pin Configuration - not used
-#define CC1101_DEFVAL_IOCFG0     0x06        // GDO0 Output Pin Configuration - used to interrupt on packet received! Useless on TX
+#define CC1101_DEFVAL_IOCFG2     0x07        // GDO2 Output Pin Configuration - 7 (0x07) Asserts when a packet has been received with CRC OK. De-asserts when the first byte is read from the RX FIFO.
+#define CC1101_DEFVAL_IOCFG1     0x84        // GDO1 Output Pin Configuration - not used
+#define CC1101_DEFVAL_IOCFG0     0x07        // GDO0 Output Pin Configuration - 7 (0x07) Asserts when a packet has been received with CRC OK. De-asserts when the first byte is read from the RX FIFO.
 #define CC1101_DEFVAL_FIFOTHR    0x07        // RX FIFO and TX FIFO Thresholds
 #define CC1101_DEFVAL_SYNC1      0xD3        // Synchronization word, high byte
 #define CC1101_DEFVAL_SYNC0      0x91        // Synchronization word, low byte
-#define CC1101_DEFVAL_PKTLEN     61          // Max RADIO Packet Length (61 bytes of data for this library). Packet is discarded if bigger.
-#define CC1101_DEFVAL_PKTCTRL1   0x06        // Packet Automation Control //  Address check and 0 (0x00) broadcast + append two bytes on receipt for CRC info and RSSI/LQI
+#define CC1101_DEFVAL_PKTLEN     CCPACKET_MAX_SIZE          // Max RADIO Packet Length (61 bytes of data for this library). Packet is discarded if bigger.
+#define CC1101_DEFVAL_PKTCTRL1   0x07        // Packet Automation Control //  Address check and 0 (0x00) broadcast + append two bytes on receipt for CRC info and RSSI/LQI
 #define CC1101_DEFVAL_PKTCTRL0   0x44        // Packet Automation Control // whitening enabled + fixed length packet + crc appended
 #define CC1101_DEFVAL_ADDR       0x00        // This devices address, used for packet filtration. Optional broadcast addresses are 0(0x00) and 255 (0xFF).
 #define CC1101_DEFVAL_CHANNR     0x00        // Channel Number - The 8-bit unsigned channel number, which is multiplied by the channel spacing setting and added to the base frequency.
@@ -291,8 +297,8 @@ static uint8_t patable_power_9XX[]  = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
   
   // Carrier frequency = 433 MHz
   #define CC1101_DEFVAL_FREQ2_433  0x10        // Frequency Control Word, High Byte
-  #define CC1101_DEFVAL_FREQ1_433  0xA7        // Frequency Control Word, Middle Byte
-  #define CC1101_DEFVAL_FREQ0_433  0x62        // Frequency Control Word, Low Byte
+  #define CC1101_DEFVAL_FREQ1_433  0xB1        // Frequency Control Word, Middle Byte
+  #define CC1101_DEFVAL_FREQ0_433  0x3B        // Frequency Control Word, Low Byte
   
   // Carrier frequency = 868 MHz - 868.299866
   #define CC1101_DEFVAL_FREQ2_868  0x21        // Frequency Control Word, High Byte
@@ -313,13 +319,13 @@ static uint8_t patable_power_9XX[]  = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
   #define CC1101_DEFVAL_MDMCFG0    0xF8        // Modem Configuration - Channel Spacing (apparently the same across bands - doesn't change)
   */
   
-  #define CC1101_DEFVAL_DEVIATN    0x35        // Modem Deviation Setting (default for 38.4kbaud)
+  //#define CC1101_DEFVAL_DEVIATN    0x35        // Modem Deviation Setting (default for 38.4kbaud)
   
   // These won't change - Modem behaviour. Irrelevant to freq / bitrate
   #define CC1101_DEFVAL_MCSM2      0x07        // Main Radio Control State Machine Configuration  // Stay in RX until end of packet.
   //#define CC1101_DEFVAL_MCSM1      0x30        // Main Radio Control State Machine Configuration  // What do do after a packet is sent or recieved. 0x30 = go to idle, 0x33 - switch to rx after tx 
   #define CC1101_DEFVAL_MCSM1      0x3F        // Main Radio Control State Machine Configuration  // What do do after a packet is sent or recieved. 0x30 = go to idle, 0x3F - switch to rx after tx 
-  #define CC1101_DEFVAL_MCSM0      0x18        // Main Radio Control State Machine Configuration
+  #define CC1101_DEFVAL_MCSM0      0x18        // Main Radio Control State Machine Configuration // CALIBRATION
   
   // These might change with freq / bitrate
   #define CC1101_DEFVAL_FOCCFG     0x16        // Frequency Offset Compensation Configuration
@@ -363,12 +369,16 @@ static uint8_t patable_power_9XX[]  = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
 ******************************************************************************/
 // Select (SPI) CC1101 
 #define cc1101_Select()  digitalWrite(SS, LOW)
+
 // Deselect (SPI) CC1101
 #define cc1101_Deselect()  digitalWrite(SS, HIGH)
+
 // Wait until SPI MISO line goes low
 #define wait_Miso()  while(digitalRead(MISO)>0)
+
 // Get GDO0 pin state
 #define getGDO0state()  digitalRead(CC1101_GDO0_interrupt_pin)
+
 // Wait until GDO0 line goes high
 #define wait_GDO0_high()  while(!getGDO0state())
 // Wait until GDO0 line goes low
@@ -391,13 +401,13 @@ static uint8_t patable_power_9XX[]  = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
 // Flush Tx FIFO
 #define flushTxFifo()             cmdStrobe(CC1101_SFTX)
 // Disable address check
-#define disableAddressCheck()     writeReg(CC1101_PKTCTRL1, 0x04)
+//#define disableAddressCheck()     writeReg(CC1101_PKTCTRL1, 0x04)
 // Enable address check
-#define enableAddressCheck()      writeReg(CC1101_PKTCTRL1, 0x06)
+//#define enableAddressCheck()      writeReg(CC1101_PKTCTRL1, 0x06)
 // Disable CCA
-#define disableCCA()              writeReg(CC1101_MCSM1, 0)
+//#define disableCCA()              writeReg(CC1101_MCSM1, 0)
 // Enable CCA
-#define enableCCA()               writeReg(CC1101_MCSM1, CC1101_DEFVAL_MCSM1)
+//#define enableCCA()               writeReg(CC1101_MCSM1, CC1101_DEFVAL_MCSM1)
 
 /**
  * Class: CC1101
@@ -412,27 +422,32 @@ class CC1101
     CFREQ     carrierFreq;  // The frequency chosen
     DATA_RATE dataRate;     // The data rate.
     CC_STATE  currentState; // What the state of the CC1101 is according to our last check
-	
-	uint8_t CC1101_GDO0_interrupt_pin;
 
-    void configureGPIO(void);   
-
+	  uint8_t CC1101_GDO0_interrupt_pin;
+    
     uint8_t channel;
     uint8_t syncWord[2];
     uint8_t devAddress;    
-    bool    serialDebug; 
-	
-	uint16_t receivedStreamSize = 0; // Number of bytes or chars recieved
-	int      receivedRSSI = 0; // in dBm
-
-    // For period state checking
-    unsigned long last_CCState_check = 0;
+  	
+	  uint16_t receivedStreamSize = 0; // Number of bytes or chars recieved
+	  int      receivedRSSI = 0; // in dBm
 
     // For the stream of packets - reassembly. A bit of a hack.
     uint8_t  previous_pkt_seq_num;
 
     // To quickly get stuff out of cc1101, or buffer what to put into the CC1101 FIFO
-    byte cc1101_rx_tx_fifo_buff[64] = { 0 };
+    byte cc1101_rx_tx_fifo_tmp_buff[64] = { 0 };
+
+    uint8_t debug_level;
+
+    void configureGPIO(void);   
+
+    byte getMarcState(void);
+
+    uint8_t getRxFIFOBytes();
+
+    unsigned long cc1101_last_check = 0;
+
 
     /**
      * writeBurstReg
@@ -487,14 +502,24 @@ class CC1101
           return 0x3F - raw;
      }
      
+     
     
     
   public:    
 
+    CC1101(void);
+
     void attachGDO0Interrupt(void);
     void detachGDO0Interrupt(void);   
 
-    CC1101(void);
+
+	 //!radio.begin(CFREQ_868, KBPS_250, /* channel num */ 16, /* address */ 0, CC1101_DEFVAL_ADDR, INTERRUPT_PIN /* Interrupt */) ) // channel 16! Whitening enabled 
+	 
+    bool begin(CFREQ freq, uint8_t channr, uint8_t addr, uint8_t interrupt_pin);
+    
+    /* For when all the configuration data is provided */
+    bool begin(const byte regConfig[NUM_CONFIG_REGISTERS], uint8_t interrupt_pin);    
+
 
     /**
      * cmdStrobe
@@ -573,13 +598,6 @@ class CC1101
      * @param mode Working mode (speed, ...)
      */
 	 
-	 //!radio.begin(CFREQ_868, KBPS_250, /* channel num */ 16, /* address */ 0, CC1101_DEFVAL_ADDR, INTERRUPT_PIN /* Interrupt */) ) // channel 16! Whitening enabled 
-	 
-    bool begin(CFREQ freq, DATA_RATE rate, uint8_t channr, uint8_t addr, uint8_t interrupt_pin);
-    
-    /* For when all the configuration data is provided */
-    bool begin(const byte regConfig[NUM_CONFIG_REGISTERS], uint8_t interrupt_pin);    
-
 
     /**
      * setSyncWord
@@ -642,8 +660,8 @@ class CC1101
     bool sendBytes(byte * data,  uint16_t size, uint8_t dst_address=BROADCAST_ADDRESS);  
     uint16_t getSize(void);	
 		
-	inline int getLastRSSI(void)
-	{ return receivedRSSI; }; // get the RSSI of the last packet to be received
+	  inline int getLastRSSI(void)
+	  { return receivedRSSI; }; // get the RSSI of the last packet to be received
 
     /**
      * Returns pointer to RX buffer
@@ -717,7 +735,6 @@ class CC1101
      */
     void printPATable(void);	
 	
-    
     /**
      * printCConfigCheck
      * 
@@ -727,10 +744,7 @@ class CC1101
     bool printCConfigCheck(void);
 
     /* Enable verbose output on serial port */
-    void enableSerialDebug(void)
-    {
-        serialDebug = true;
-    }
+    void set_debug_level(uint8_t set_debug_level = 1);
 
     /* Validate config registers with what is expected */
     bool checkCC(void);
@@ -742,7 +756,7 @@ class CC1101
     void printCCFIFOState(void);
 
     /* Print the Marcstate */
-    void printMarcstate(void);
+    void printMarcstate(void);      
        
  };
 

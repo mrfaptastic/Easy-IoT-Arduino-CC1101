@@ -8,7 +8,7 @@
 #ifndef _CCPACKET_H
 #define _CCPACKET_H
 
-#define MAX_STREAM_LENGTH        200 // Impacts the amount of memory that will get used & how much we can send and receive in one hit. 
+#define MAX_STREAM_LENGTH        512 // Impacts the amount of memory that will get used & how much we can send and receive in one hit. 
                                      // This avoids dynamic memory allocation which is bad on embedded devices.   
 
 

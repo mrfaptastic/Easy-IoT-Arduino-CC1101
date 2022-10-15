@@ -1,11 +1,23 @@
+/* Two devices are going to be required to test this obviously. */
+
 #include "cc1101.h"
 
 /*******************************************************************
  * Radio, Device ID and Interrupt Pin configuration                */
 
-#define RADIO_CHANNEL             16
-#define THIS_DEVICE_ADDRESS       22
-#define DESINATION_DEVICE_ADDRESS BROADCAST_ADDRESS // Broadcast
+
+#define RADIO_CHANNEL         16
+#define DEVICE_ADDRESS        20 // this device
+#define DEST_ADDRESS          0  // broadcast
+#define RECIEVE_ONLY          1  // on the transmitting station - change this.
+
+/* In your projects platformio.ini file configure the following, but only change the DEVICE_ADDRESS for each device:
+build_flags = 
+    -DRADIO_CHANNEL=16
+	-DDEVICE_ADDRESS=20
+	-DDEST_ADDRESS=0 ; THis is the broadcast channel
+
+*/
 
 /** 
  *  NOTE: On ESP8266 can't use D0 for interrupts on WeMos D1 mini.
@@ -18,182 +30,117 @@
  * Both GDO2 and GDO0 are configured in the CC1101 to behave the same.
  *
  */
+
 // External interrupt pin for GDO0
 #ifdef ESP32
-  #define GDO0_INTERRUPT_PIN 13
+  #define GDO0_INTERRUPT_PIN 13 
+  #pragma message "esp32"
 #elif ESP8266
   #define GDO0_INTERRUPT_PIN D2
 #elif __AVR__
   #define GDO0_INTERRUPT_PIN 5 // Digital D2 or D3 on the Arduino Nano allow external interrupts only
 #endif
 
-/*******************************************************************
- * Radio and Sketch Behaviour                                      */
-
-#define SEND_STUFF_PERIODICALLY     1
-//#define SHOW_CC_STATUS_PERIODICALLY 1
 
 
 CC1101 radio;
 
 unsigned long lastSend = 0;
-unsigned int sendDelay = 10000;
+unsigned int sendDelay = 0;
 
-unsigned long lastStatusDump = 0;
-unsigned int statusDelay = 5000;
-
-String rec_payload;
-
-
-/*****************************************************************/
-/* Author's Sensor Specific Stuff. Probably of no use to you     */
-
-//https://create.arduino.cc/projecthub/Marcazzan_M/how-easy-is-it-to-use-a-thermistor-e39321
-/*thermistor parameters:
- * RT0o: 10 000 Ω
- * B: 3977 K +- 0.75%
- * T0:  25 CA
- * +- 5%
- */
-
-//These values are in the datasheet
-#define RT0 100000   // Ω
-#define B 3977      // K
-
-#define VCC 3.3    //Supply voltage
-#define R 160000  //R=10KΩ
-
-//Variables
-float RT, VR, ln, TXX, T0o, VRT;
-
-
-
+int counter = 0;
+String  send_payload;
+String  recieve_payload;
 
 void setup() 
 {
-    T0o = 25 + 273.15;                 //Temperature T0 from datasheet, conversion from Celsius to kelvin
-    
-    // Start Serial
-    delay (100);
     Serial.begin(115200);
     delay (100);
+
+    pinMode(LED_BUILTIN, OUTPUT);
+
+
     Serial.println("Starting...");
 
-    //radio.enableSerialDebug();
+    //radio.set_debug_level(1);
 
     // Start RADIO
-    while ( !radio.begin(CFREQ_868, KBPS_250, /* channel num */ 16, /* address */ THIS_DEVICE_ADDRESS, GDO0_INTERRUPT_PIN /* Interrupt */) ) // channel 16! Whitening enabled 
-    {
-        delay(5000); // Try again in 5 seconds
-    }   
-    radio.printCConfigCheck();
+    while (!radio.begin(CFREQ_433, RADIO_CHANNEL, DEVICE_ADDRESS, GDO0_INTERRUPT_PIN /* Interrupt */));   // channel 16! Whitening enabled 
+
+    radio.setOutputPowerLeveldBm(10); // max power
+     
+    delay(1000); // Try again in 5 seconds
+    //radio.printCConfigCheck();     
+
     Serial.println(F("CC1101 radio initialized."));
-    rec_payload.reserve(100);
+    recieve_payload.reserve(512);
 
     // IMPORTANT: Kick the radio into receive mode, otherwise it will sit IDLE and be TX only.
     radio.setRxState();
 
+    sendDelay = 6000; //random(1000, 3000);
+#if !defined(RECIEVE_ONLY)    
+    Serial.printf("Sending a message every %d ms.\n", sendDelay);
+#endif 
+
+  //  radio.printPATable();
+
 }
 
-int   counter = 0;
-char  output[64] = {0};
+//void loop() { }
 void loop() 
 {
     unsigned long now = millis();
     
     if ( radio.dataAvailable() )
-    { 
-      
-        /*
-         * Data format from CC1110:
-         *  V|33|D|000907|000393|000138|002047|002047|002047|001421|0
-         *  V|33|D|000902|000393|000138|002047|002047|002047|001423|0
-         */                               
-        rec_payload  = String(radio.getChars()); // pointer to memory location of start of string
+    {       
+        Serial.println("Data available.");
+        digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)           
+
+        recieve_payload  = String(radio.getChars()); // pointer to memory location of start of string
         //Serial.print("Payload size recieved: "); Serial.println(radio.getSize());
         Serial.print("Payload received: ");
-        Serial.println(rec_payload);
+        Serial.println(recieve_payload);
+        delay(100);
+        digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW   
 
-        byte *payload = radio.getBytes();
-        
-        float battery           =  rec_payload.substring(2,4).toInt();
-        int movement           =  rec_payload.substring(8,14).toInt();
-        //Serial.print("movement: " ); Serial.println(movement);
-        
-        int thermopile_surface_ir = rec_payload.substring(15,21).toInt();
-        //Serial.print("thermopile_surface_ir: "); Serial.println(thermopile_surface_ir);  
-
-        int thermistor_ambient_temp = rec_payload.substring(22).toInt();
-        //Serial.print("thermistor_ambient_temp: "); Serial.println(thermistor_ambient_temp);  
-
-        VRT  = thermistor_ambient_temp;     // Acquisition analog value of VRT
-        VRT  = (3.30 / 1023.00) * VRT;      // Conversion to voltage
-        VR   = VCC - VRT;
-        RT   = VRT / (VR / R);              // Resistance of RT
-      
-        ln = log(RT / RT0);
-        TXX = (1 / ((ln / B) + (1 / T0o))); //Temperature from thermistor
-      
-        TXX = TXX - 273.15;                 //Conversion to Celsius
-  
-        Serial.print("battery: " ); Serial.println(battery);        
-
-        
-        Serial.print("Temperature:");
-        Serial.print("\t");
-        Serial.print(TXX);
-        Serial.print("C\t\t");
-        Serial.print(TXX + 273.15);        //Conversion to Kelvin
-        Serial.print("K\t\t");
-        Serial.print((TXX * 1.8) + 32);    //Conversion to Fahrenheit
-        Serial.println("F");
-
-        // Infrared camer / Thermopile attempt
-        float ir_temp = thermopile_surface_ir*(battery/33); // normalise to 3.3 volts due to the ir value going up as battery deplets
-        ir_temp /= (float)4.95; // guestimate
-
-        Serial.print("IR temperature:");
-        Serial.print("\t");
-        Serial.println(ir_temp);      
-       
-        
- /*
-        // Data packets from sensors like:
-        
-        V|33|D|000196|000104|000000|000000|000000|000000|000393|0
-        battery: 33
-        movement: 196
-        thermopile_surface_ir: 104
-        thermistor_ambient_temp: 393
-        Temperature:	25.04C		298.19K		77.08F
-        IR temperature:	21.01
-
-*/
     }
-  
-#ifdef SEND_STUFF_PERIODICALLY
+
     // Periodically send something random.
     if (now > lastSend) 
     {
-        memset(output, 0x00, sizeof(output));  
-        sprintf(output, "** Sending packet %d ", counter++);
-        
-        radio.sendChars("----------------------------------", DESINATION_DEVICE_ADDRESS);     
-        lastSend = now + sendDelay;
-    }
-#endif
 
-#ifdef SHOW_CC_STATUS_PERIODICALLY
-  
-    if (now > lastStatusDump)
-    {        
-        radio.printCCState();        
-        radio.printCCFIFOState(); 
         radio.printMarcstate();
-        lastStatusDump = now + statusDelay; 
-    }
+#if !defined(RECIEVE_ONLY)
+
+        Serial.println("Sending message.");        
+        digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
+        //send_payload = "Sending a large and long messages " + String (counter) + " from device " + String(DEVICE_ADDRESS) + ". Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book.";
+        //send_payload = "0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789";
+        send_payload = "0123456789------------------------------------------012345";
+     //   send_payload = "0123456789---------------------------------------------XX";
+        //    send_payload = "0123456789";    
+        //radio.sendChars("Testing 123", DEST_ADDRESS);     
+        radio.sendChars(send_payload.c_str(), DEST_ADDRESS);     
+
+        Serial.print("Payload sent: ");
+        Serial.println(send_payload);        
+                
+       
+
+        counter++;
+
+        // IMPORTANT: Kick the radio into receive mode, otherwise it will sit IDLE and be TX only.
+        radio.setRxState();        
+
+        delay(100);
+        digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW        
 
 #endif     
+
+        lastSend = now + sendDelay;
+    }
+
 
 
 }

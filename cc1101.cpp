@@ -1,8 +1,5 @@
 #include "cc1101.h"
 
-// What debug and internal workings information do we want to output to Serial for debug or monitoring purposes?
-//#define SERIAL_INFO  1 
-
 /**
  * Global variables for packet and stream interrupts
  */
@@ -44,7 +41,7 @@ CC1101::CC1101(void)
   syncWord[1]   = CC1101_DEFVAL_SYNC0;
 
   // for the fifo
-  memset(cc1101_rx_tx_fifo_buff, 0x00,  sizeof(cc1101_rx_tx_fifo_buff)); // flush 
+  memset(cc1101_rx_tx_fifo_tmp_buff, 0x00,  sizeof(cc1101_rx_tx_fifo_tmp_buff)); // flush 
   
   // for longer than one packet messages
   memset(stream_multi_pkt_buffer, 0x00, sizeof(stream_multi_pkt_buffer)); // flush
@@ -52,12 +49,14 @@ CC1101::CC1101(void)
   // State of CC as told by the CC from the returned status byte from each SPI write transfer
   currentState = STATE_UNKNOWN;
 
-  last_CCState_check = millis();
+  debug_level = 0;
 }
 
 /* Configure the ESP's GPIO etc */
 void CC1101::configureGPIO(void)
 {
+  if (debug_level >= 1)
+    Serial.println("Configuring GPIOs.");
 	
 #ifdef ESP32
   pinMode(SS, OUTPUT);                       // Make sure that the SS Pin is declared as an Output
@@ -66,12 +65,13 @@ void CC1101::configureGPIO(void)
   
 #if defined(ESP32) || defined(ESP8266)
   // Initialize SPI interface
-  SPI.setFrequency(3250000);  
+  SPI.setFrequency(2000000);  
 #endif
 
   pinMode(CC1101_GDO0_interrupt_pin, INPUT);          // Config GDO0 as input
 
-  if (serialDebug) {
+  if (debug_level >= 1) 
+  {
     Serial.print(F("Using ESP Pin "));
     Serial.print(CC1101_GDO0_interrupt_pin);
     Serial.println(F(" for CC1101 GDO0 / GDO2."));
@@ -87,10 +87,10 @@ void CC1101::configureGPIO(void)
    @param freq Carrier frequency
    @param mode Working mode (speed, ...)
 */
-bool CC1101::begin(CFREQ freq, DATA_RATE rate, uint8_t channr, uint8_t addr, uint8_t _int_pin)
+bool CC1101::begin(CFREQ freq, uint8_t channr, uint8_t addr, uint8_t _int_pin)
 {
   carrierFreq = freq;
-  dataRate    = rate;
+  dataRate    = KBPS_250;
   
   CC1101_GDO0_interrupt_pin = _int_pin;
 
@@ -98,26 +98,39 @@ bool CC1101::begin(CFREQ freq, DATA_RATE rate, uint8_t channr, uint8_t addr, uin
   devAddress    = addr; 
 
   configureGPIO();
-
   hardReset();                              // Reset CC1101
-
   delay(100);  
-
   setCCregs();
-  
+  delay(100);
   
   setIdleState();       // Enter IDLE state before flushing RxFifo (don't need to do this when Overflow has occured)
-  delayMicroseconds(1);
   flushRxFifo();        // Flush Rx FIFO  
   flushTxFifo();     
 
-  attachGDO0Interrupt();
+  // Send empty packet (which won't actually send a packet, but will flush the Rx FIFO only.)
+  CCPACKET packet;
+  packet.payload_size = 0;
+  sendPacket(packet);  
 
-  return checkCC();  
+  //attachGDO0Interrupt();
+
+  if ( checkCC() == false )
+  {
+    // Close the SPI connection
+    SPI.end();
+
+    return false;
+  }
+
+  setRxState();
+
+  return true;
 
 }
 
 /* Begin function when we're given all the 47 configuration registers in one hit */
+
+/*
 bool CC1101::begin(const byte regConfig[NUM_CONFIG_REGISTERS], uint8_t _int_pin)
 {
 	
@@ -132,20 +145,32 @@ bool CC1101::begin(const byte regConfig[NUM_CONFIG_REGISTERS], uint8_t _int_pin)
   // Go through the array and set
   for (uint8_t i = 0; i < NUM_CONFIG_REGISTERS-6; i++)
   {
-   
     writeReg(i, pgm_read_byte(regConfig + i));
-    //writeReg(i, regConfig[i]);
-    _NOP(); _NOP(); _NOP(); _NOP();
   }
 
   attachGDO0Interrupt();
 
- // setOutputPowerLeveldBm(10); // max power FREND0 register config
+  if ( checkCC() == false )
+  {
+    // Close the SPI connection
+    SPI.end();
+    
+    return false;
+  }
 
-  return  checkCC();
+  setRxState();
+
+  return true;
 
 }
+*/
 
+
+byte CC1101::getMarcState(void)
+{
+    byte marcState = (readStatusRegSafe(CC1101_MARCSTATE) & 0b11111); // only care about the lower 5 bits
+    return marcState;
+}
 
 
 /* Check the health of the CC. i.e. The partnum response is OK */
@@ -155,14 +180,11 @@ bool CC1101::checkCC(void)
   // Do a check of the partnum
   uint8_t version = readReg(CC1101_VERSION, CC1101_STATUS_REGISTER);
 
-  if ( !(version == 0x14 || version == 0x04)) // wtf? Some chips from china still return 4!
+  if ( version == 0x00 || version == 0xFF) // should return 4 or 20 (in decimal)
   {
-    detachGDO0Interrupt();
+    //detachGDO0Interrupt();
     
     setPowerDownState();
-
-    // Close the SPI connection
-    SPI.end();
 
     Serial.println(F("Error: CC1101 not detected! (Invalid version)"));
     return false;
@@ -171,13 +193,12 @@ bool CC1101::checkCC(void)
 
   return true;
 
-
 } // check CC
 
 /* Attach the interrupt from CC1101 when packet received */
 void CC1101::attachGDO0Interrupt(void)
 {
-  if (serialDebug)
+  if (debug_level >= 1)
     Serial.println(F("Attaching Interrupt to GDO0"));
 
   attachInterrupt(CC1101_GDO0_interrupt_pin, interupt_packetReceived, FALLING);
@@ -185,7 +206,7 @@ void CC1101::attachGDO0Interrupt(void)
 
 void CC1101::detachGDO0Interrupt(void)
 {
-  if (serialDebug)
+  if (debug_level >= 1)
     Serial.println(F("Detaching Interrupt to GDO0"));
 
   detachInterrupt(CC1101_GDO0_interrupt_pin);
@@ -203,10 +224,10 @@ void CC1101::wakeUp(void)
   wait_Miso();                          // Wait until MISO goes low
   cc1101_Deselect();                    // Deselect CC1101
   
-  if (serialDebug)
+  if (debug_level >= 1)
 	Serial.println("CC1101 has been woken up.");
   
-  attachGDO0Interrupt(); 
+  //attachGDO0Interrupt(); 
   // Reload config just to be sure?
   hardReset();                              // Reset CC1101
   delay(100);  
@@ -215,7 +236,7 @@ void CC1101::wakeUp(void)
   delayMicroseconds(1);
   flushRxFifo();        // Flush Rx FIFO  
   flushTxFifo();     
-  detachGDO0Interrupt();
+  //detachGDO0Interrupt();
   
 }
 
@@ -234,20 +255,20 @@ void CC1101::writeReg(byte regAddr, byte value)
   // Print extra info when we're writing to CC register
   if (regAddr <= CC1101_TEST0) // for some reason when this is disable config writes don't work!!
   {
-#ifdef SERIAL_INFO
-
-    char reg_name[16] = {0};
-    strcpy_P(reg_name, CC1101_CONFIG_REGISTER_NAME[regAddr]);
-    Serial.print(F("Writing to CC1101 reg "));
-    Serial.print(reg_name);
-    Serial.print(F(" ["));
-    Serial.print(regAddr, HEX);
-    Serial.print(F("] "));    
-    Serial.print(F("value (HEX):\t"));
-    Serial.println(value, HEX);
-    //    Serial.print(F(" value (DEC) "));
-    //    Serial.println(value, DEC);
-#endif	
+    if (debug_level >= 2)
+    {
+      char reg_name[16] = {0};
+      strcpy_P(reg_name, CC1101_CONFIG_REGISTER_NAME[regAddr]);
+      Serial.print(F("Writing to CC1101 reg "));
+      Serial.print(reg_name);
+      Serial.print(F(" ["));
+      Serial.print(regAddr, HEX);
+      Serial.print(F("] "));    
+      Serial.print(F("value (HEX):\t"));
+      Serial.println(value, HEX);
+      //    Serial.print(F(" value (DEC) "));
+      //    Serial.println(value, DEC);
+    }
       // Store the configuration state we requested the CC1101 to be
       currentConfig[regAddr] = value;	
   }
@@ -263,10 +284,6 @@ void CC1101::writeReg(byte regAddr, byte value)
   delayMicroseconds(2);   // HACK
 
   cc1101_Deselect();                    // Deselect CC1101
-  delay(2);
-
-
-
 
 }
 
@@ -280,33 +297,38 @@ void CC1101::writeReg(byte regAddr, byte value)
 */
 void CC1101::cmdStrobe(byte cmd)
 {
-
-  if (serialDebug)
-  {
-    Serial.print(F("Sending strobe: "));
-    switch (cmd)
-    {
-      case 0x30: Serial.println(F("CC1101_SRES      ")); break;
-      case 0x31: Serial.println(F("CC1101_SFSTXON   ")); break;
-      case 0x32: Serial.println(F("CC1101_SXOFF     ")); break;
-      case 0x33: Serial.println(F("CC1101_SCAL      ")); break;
-      case 0x34: Serial.println(F("CC1101_SRX       ")); break;
-      case 0x35: Serial.println(F("CC1101_STX       ")); break;
-      case 0x36: Serial.println(F("CC1101_SIDLE     ")); break;
-      case 0x38: Serial.println(F("CC1101_SWOR      ")); break;
-      case 0x39: Serial.println(F("CC1101_SPWD      ")); break;
-      case 0x3A: Serial.println(F("CC1101_SFRX      ")); break;
-      case 0x3B: Serial.println(F("CC1101_SFTX      ")); break;
-      case 0x3C: Serial.println(F("CC1101_SWORRST   ")); break;
-      case 0x3D: Serial.println(F("CC1101_SNOP      ")); break;
-    }
-  }
-
-
   cc1101_Select();                      // Select CC1101
   wait_Miso();                          // Wait until MISO goes low
   readCCStatus(SPI.transfer(cmd));                    // Send strobe command
   cc1101_Deselect();                    // Deselect CC1101
+
+
+  if (debug_level >= 1)
+  {
+    Serial.print(F("Sent strobe: "));
+    switch (cmd)
+    {
+      case 0x30: Serial.print(F("CC1101_SRES      ")); break;
+      case 0x31: Serial.print(F("CC1101_SFSTXON   ")); break;
+      case 0x32: Serial.print(F("CC1101_SXOFF     ")); break;
+      case 0x33: Serial.print(F("CC1101_SCAL      ")); break;
+      case 0x34: Serial.print(F("CC1101_SRX       ")); break;
+      case 0x35: Serial.print(F("CC1101_STX       ")); break;
+      case 0x36: Serial.print(F("CC1101_SIDLE     ")); break;
+      case 0x38: Serial.print(F("CC1101_SWOR      ")); break;
+      case 0x39: Serial.print(F("CC1101_SPWD      ")); break;
+      case 0x3A: Serial.print(F("CC1101_SFRX      ")); break;
+      case 0x3B: Serial.print(F("CC1101_SFTX      ")); break;
+      case 0x3C: Serial.print(F("CC1101_SWORRST   ")); break;
+      case 0x3D: Serial.print(F("CC1101_SNOP      ")); break;
+    }
+
+    Serial.print("State: "); printCCState();    
+  }
+  
+
+
+
 }
 
 /**
@@ -328,8 +350,6 @@ byte CC1101::readReg(byte regAddr, byte regType)
   cc1101_Select();                      // Select CC1101
   wait_Miso();                          // Wait until MISO goes low
   SPI.transfer(addr);                   // Send register address
- // delayMicroseconds(1);  // HACK
- // _NOP(); _NOP(); _NOP(); _NOP();_NOP(); _NOP(); _NOP(); _NOP();_NOP(); _NOP(); _NOP(); _NOP();_NOP(); _NOP(); _NOP(); _NOP(); // HACK2
   val = SPI.transfer(0x00);             // Read result
   cc1101_Deselect();                    // Deselect CC1101
 
@@ -354,13 +374,10 @@ byte CC1101::readStatusRegSafe(uint8_t regAddr)
   {
       statusRegByte       = statusRegByteVerify;
       statusRegByteVerify = readReg(regAddr, CC1101_STATUS_REGISTER);
-	  
-      //yield();
   }
   while(statusRegByte != statusRegByteVerify);   
 
   return statusRegByte;
-  
 }
 
 
@@ -371,6 +388,8 @@ byte CC1101::readStatusRegSafe(uint8_t regAddr)
 */
 void CC1101::hardReset(void)
 {
+  if (debug_level >= 1)
+    Serial.println("Resetting CC1101.");
 
   cc1101_Deselect();                    // Deselect CC1101
   delayMicroseconds(5);
@@ -408,7 +427,7 @@ void CC1101::softReset(void)
 void CC1101::setCCregs(void)
 {
 
-  if (serialDebug)
+  if (debug_level >= 1)
     Serial.println(F("Setting CC Configuration Registers..."));
 
   /* NOTE: Any Configuration registers written here are done so
@@ -456,16 +475,12 @@ void CC1101::setCCregs(void)
   switch (dataRate)
   {
     case KBPS_250:
-
-      if (serialDebug)
-        Serial.print(F("250kbps data rate"));
-
       writeReg(CC1101_FSCTRL0, 0x21);
       writeReg(CC1101_FSCTRL1, 0x0C); // Frequency Synthesizer Control (optimised for sensitivity)
       writeReg(CC1101_MDMCFG4, 0x2D); // Modem Configuration      
       writeReg(CC1101_MDMCFG3, 0x3B); // Modem Configuration
       writeReg(CC1101_MDMCFG2,  0x13);
-      writeReg(CC1101_MDMCFG1,  0x22); // fec disabled, 4 bytes preamble
+      writeReg(CC1101_MDMCFG1,  0x42); // fec disabled, 4 bytes preamble
       writeReg(CC1101_MDMCFG0,  0xF8);
 
       writeReg(CC1101_DEVIATN, 0x62); // Modem Deviation Setting
@@ -484,22 +499,23 @@ void CC1101::setCCregs(void)
 
       break;
 
+/*
+    // Low throughput (1.2kbps) transmission doesn't work.  Can't get it to work.
+    // Last 5 bytes of all received payloads are garbage!!
+    // RX Buffer Data: 1, 1, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, D3, 88, F1, 14, B,  
+
     case KBPS_1:
-
-      if (serialDebug)
-        Serial.print(F("4kbps data rate (sensitivity)"));
-
-      writeReg(CC1101_FSCTRL0, 0x00); // (optimised for sensitivity)
+      writeReg(CC1101_FSCTRL0, 0x0); // (optimised for sensitivity)
       writeReg(CC1101_FSCTRL1, 0x06); // Frequency Synthesizer Control
 
-      writeReg(CC1101_MDMCFG4, 0xF5); // Modem Configuration      
+      writeReg(CC1101_MDMCFG4, 0xF6); // Modem Configuration      
       writeReg(CC1101_MDMCFG3, 0x83); // Modem Configuration
-      writeReg(CC1101_MDMCFG2,  0x93); // sync word
+      writeReg(CC1101_MDMCFG2, 0x13); 
       writeReg(CC1101_MDMCFG1,  0x22); // fec disabled, 4 bytes preamble
       writeReg(CC1101_MDMCFG0,  0xF8);        
 
-      writeReg(CC1101_DEVIATN,  0x15); // Modem Deviation Setting
-      writeReg(CC1101_FOCCFG,   0x36); // Frequency Offset Compensation Configuration
+      writeReg(CC1101_DEVIATN,  0x40); // Modem Deviation Setting
+      writeReg(CC1101_FOCCFG,   0x16); // Frequency Offset Compensation Configuration
       writeReg(CC1101_BSCFG,    0x6C); // Bit Synchronization Configuration
       writeReg(CC1101_AGCCTRL2, 0x03); // AGC Control
       writeReg(CC1101_AGCCTRL1, 0x40); // AGC Control
@@ -508,20 +524,15 @@ void CC1101::setCCregs(void)
       writeReg(CC1101_FREND0, 0x10); // Front End RX Configuration           
       writeReg(CC1101_FREND1, 0x56); // Front End RX Configuration      
 
-      writeReg(CC1101_FSCAL3,  0xA9);
-      writeReg(CC1101_FSCAL2,  0x0A);     
+      writeReg(CC1101_FSCAL3,  0xE9);
+      writeReg(CC1101_FSCAL2,  0x2A);     
       writeReg(CC1101_FSCAL1,  0x00);
-      writeReg(CC1101_FSCAL0,  0x0D);
+      writeReg(CC1101_FSCAL0,  0x1F);
 
       break;
-      
+ */     
   }
 
-  
-  // Send empty packet (which won't actually send a packet, but will flush the Rx FIFO only.)
-  CCPACKET packet;
-  packet.payload_size = 0;
-  sendPacket(packet);
 }
 
 
@@ -592,27 +603,17 @@ void CC1101::setCarrierFreq(CFREQ freq)
   {
     case CFREQ_922:
 
-      if (serialDebug)
-        Serial.print(F("922Mhz frequency (Canada, US, Australia)"));
-
       writeReg(CC1101_FREQ2,  CC1101_DEFVAL_FREQ2_922);
       writeReg(CC1101_FREQ1,  CC1101_DEFVAL_FREQ1_922);
       writeReg(CC1101_FREQ0,  CC1101_DEFVAL_FREQ0_922);
       break;
     case CFREQ_433:
 
-      if (serialDebug)
-        Serial.print(F("433Mhz frequency"));
-
       writeReg(CC1101_FREQ2,  CC1101_DEFVAL_FREQ2_433);
       writeReg(CC1101_FREQ1,  CC1101_DEFVAL_FREQ1_433);
       writeReg(CC1101_FREQ0,  CC1101_DEFVAL_FREQ0_433);
       break;
     default:
-
-      if (serialDebug)
-        Serial.print(F("868Mhz frequency (Europe)"));
-
 
       writeReg(CC1101_FREQ2,  CC1101_DEFVAL_FREQ2_868);
       writeReg(CC1101_FREQ1,  CC1101_DEFVAL_FREQ1_868);
@@ -683,9 +684,9 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
 	
   //detachGDO0Interrupt(); // we don't want to get interrupted at this important moment in history
   
-  setIdleState();       // Enter IDLE state before flushing RxFifo (don't need to do this when Overflow has occurred)
-  delayMicroseconds(1);
-  flushRxFifo();        // Flush Rx FIFO
+  //setIdleState();       // Enter IDLE state before flushing RxFifo (don't need to do this when Overflow has occurred)
+  //delayMicroseconds(1);
+  //flushRxFifo();        // Flush Rx FIFO
 
   uint16_t unsent_stream_bytes = stream_length;
 
@@ -695,9 +696,10 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
     return false;
   }
 
-#ifdef SERIAL_INFO
-  Serial.print(F("Sending byte stream of ")); Serial.print(stream_length, DEC); Serial.println(F(" bytes in length."));
-#endif
+  if (debug_level >= 1) {
+    Serial.print(F("Sending byte stream of ")); Serial.print(stream_length, DEC); Serial.println(F(" bytes in length."));
+  }
+
 
   uint8_t  stream_pkt_seq_num = 1;
   uint8_t  stream_num_of_pkts = 0; // we have to send at least one!
@@ -714,7 +716,7 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
     uint8_t payload_size = MIN(STREAM_PKT_MAX_PAYLOAD_SIZE, unsent_stream_bytes);
 
     packet.payload_size	        	= payload_size; // CCPACKET_OVERHEAD_STREAM added in sendPacket
-    packet.cc_dest_address  		= cc_dest_address; // probably going to broadcast this most of the time (0x00, or 0xFF)
+    packet.cc_dest_address  		  = cc_dest_address; // probably going to broadcast this most of the time (0x00, or 0xFF)
     packet.stream_num_of_pkts  		= stream_num_of_pkts;
     packet.stream_pkt_seq_num  		= stream_pkt_seq_num++;
 
@@ -725,32 +727,42 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
     
     uint16_t start_pos = stream_length - unsent_stream_bytes; // (stream_length == unsent_stream_bytes) ? 0:(stream_length-1-unsent_stream_bytes); // because array positions are x-1
 	
-	//Serial.printf("Packet Start Pos: %d\n", start_pos);
-	
     memcpy( (byte *)packet.payload, &data[start_pos], payload_size); // cast as char
-/*	
-	// REMOVE - FOR VALIDATION TESTING ONLY
+   	
+      // REMOVE - FOR VALIDATION TESTING ONLY
+/*
+     if (debug_level >= 2) {
+      Serial.println("");
+      
+      Serial.print("HEX content of packet to send:");
+      for (uint8_t i = 0; i < packet.payload_size; i++)
+      {
+        //Serial.printf("%02x", packet.payload[i]);
+        Serial.print(","); Serial.print((char)packet.payload[i]);
+      }	
+      Serial.println("");
 
-	Serial.println("");
-	
-	Serial.print("HEX content of packet to send:");
-	for (uint8_t i = 0; i < packet.payload_size; i++)
-	{
-		Serial.printf("%02x", packet.payload[i]);
-	}	
-	Serial.println("");
-*/	
-	
+          Serial.print(F("stream_num_of_pkts: "));
+          Serial.println(packet.stream_num_of_pkts, DEC);
+
+          Serial.print(F("stream_pkt_seq_num: "));
+          Serial.println(packet.stream_pkt_seq_num, DEC);
+
+          Serial.print(F("Payload_size: "));
+          Serial.println(packet.payload_size, DEC);
+     }
+ */
     // Try and send the packet stream.
     uint8_t tries = 0; 
 	
     // Check that the RX state has been entered
+    sendStatus = sendPacket(packet);
+/*
     while (tries++ < 3 && ((sendStatus = sendPacket(packet)) != true) )
     {
       Serial.println(F("Failed to send byte packet. Retrying. "));
-      delay(25); // random delay interval
     }
-
+*/
     if ( !sendStatus )
     {
       Serial.println(F("Failed to send byte stream. Existing."));
@@ -759,21 +771,31 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
 
     unsent_stream_bytes -= payload_size;
 
-    if (serialDebug){ 
-	  Serial.print(unsent_stream_bytes, DEC);
+    if (debug_level >= 1){ 
+	    Serial.print(unsent_stream_bytes, DEC);
       Serial.println(F(" bytes remain unsent."));
-	}
+	  }
+
+    delay(1000); // Need a delay between packets or the reciever won't be ready for the next immediate packet!
+    // Perhaps need to implement rolling buffer.
 
   } // end stream loop
 
   //attachGDO0Interrupt();
   
-  if (serialDebug){
+  if (debug_level >= 1){
 	Serial.print((millis() - start_tm), DEC);
 	Serial.println(F(" milliseconds to complete sendBytes()"));  
   }
 
   return sendStatus;
+}
+
+uint8_t CC1101::getRxFIFOBytes()
+{
+    byte rxBytes = readStatusRegSafe(CC1101_RXBYTES); // Any left over bytes in the TX FIFO?
+
+    return (uint8_t) (rxBytes & BYTES_IN_FIFO);
 }
 
 
@@ -790,9 +812,48 @@ bool CC1101::sendBytes(byte * data, uint16_t stream_length,  uint8_t cc_dest_add
 */
 bool CC1101::sendPacket(CCPACKET packet)
 {
-	byte marcState;
-    byte txBytes, txOverflow;  
-	bool res = false;
+  byte marcState;
+  byte txBytes, txOverflow;  
+  byte rxBytes, rxUnderflow;    
+  bool res = false;
+
+  if (debug_level >= 1)
+    Serial.println(F("sendPacket()"));  
+
+  // Check 1: TX/RX FIFO check
+  txBytes = readStatusRegSafe(CC1101_TXBYTES); // Any left over bytes in the TX FIFO?
+  rxBytes = readStatusRegSafe(CC1101_RXBYTES); // Any left over bytes in the TX FIFO?
+
+  // Repurpose these variables
+  txBytes     = txBytes & BYTES_IN_FIFO;
+  txOverflow  = txBytes & OVERFLOW_IN_FIFO;
+
+  // Repurpose these variables
+  rxBytes     = rxBytes & BYTES_IN_FIFO;
+  rxUnderflow = rxBytes & OVERFLOW_IN_FIFO;  
+
+  if (txOverflow != 0x0)
+  {
+      if (debug_level >= 1)
+        Serial.println(F("TX FIFO is in overflow. Flushing. "));
+      flushTxFifo();
+  }
+
+  if (rxUnderflow != 0x0)
+  {
+      if (debug_level >= 1)    
+        Serial.println(F("RX FIFO is in overflow. Flushing. "));
+      flushRxFifo();
+  }  
+
+  if (txBytes != 0) // only do this stuff if it's empty already
+  {
+      if (debug_level >= 1)    
+        Serial.println(F("TX FIFO contains garbage. Flushing. "));
+    
+    setIdleState();       // Enter IDLE state
+    flushTxFifo();        // Flush Tx FIFO
+  }
 
 
  /**
@@ -800,97 +861,36 @@ bool CC1101::sendPacket(CCPACKET packet)
   */
 
   // Flush the RX/TX Buffer
-  memset(cc1101_rx_tx_fifo_buff, 0x00, sizeof(cc1101_rx_tx_fifo_buff));  
+  memset(cc1101_rx_tx_fifo_tmp_buff, 0x00, sizeof(cc1101_rx_tx_fifo_tmp_buff));  
   
   // Set dest device address as first position of TX FIFO
   //writeReg(CC1101_TXFIFO,  packet.cc_dest_address); // byte 1
-  cc1101_rx_tx_fifo_buff[0] = packet.cc_dest_address;
+  cc1101_rx_tx_fifo_tmp_buff[0] = packet.cc_dest_address;
   
   // Set payload size as the second position of the TX FIFO
   //writeReg(CC1101_TXFIFO,  packet.payload_size); // byte 2
-  cc1101_rx_tx_fifo_buff[1] = packet.payload_size;
+  cc1101_rx_tx_fifo_tmp_buff[1] = packet.payload_size;
   
   // Stream stuff
   //writeReg(CC1101_TXFIFO,  packet.stream_num_of_pkts); // byte 3
   //writeReg(CC1101_TXFIFO,  packet.stream_pkt_seq_num); // byte 4
-  cc1101_rx_tx_fifo_buff[2] = packet.stream_num_of_pkts;
-  cc1101_rx_tx_fifo_buff[3] = packet.stream_pkt_seq_num;
+  cc1101_rx_tx_fifo_tmp_buff[2] = packet.stream_num_of_pkts;
+  cc1101_rx_tx_fifo_tmp_buff[3] = packet.stream_pkt_seq_num;
   
   // Copy the payload
-  memcpy( &cc1101_rx_tx_fifo_buff[4], packet.payload, packet.payload_size);
+  memcpy( &cc1101_rx_tx_fifo_tmp_buff[4], packet.payload, packet.payload_size);
 
-  /*
-  Serial.print("Payload Data: ");
-  for (int i = 0; i < packet.payload_size; i++)
-  {
-    Serial.print(packet.payload[i], HEX);
-    Serial.print(", ");
-  }
-  Serial.println("");
-  */
+       if (debug_level >= 2)
+      {    
+        Serial.print("Payload Data: ");
+        for (int i = 0; i < CCPACKET_MAX_SIZE; i++)
+        {
+          Serial.print(cc1101_rx_tx_fifo_tmp_buff[i], HEX);
+          Serial.print(", ");
+        }
+        Serial.println("");
+      }
 
-  
-      
-
- /**
-  * STEP 1: Check that the marcState of the CC1101 is RX, and that none of the buffers have
-  * overflowed.
-  */ 
-
-	// Enter RX state (we might receive a packet whilst getting ready to TX)
-	setRxState();
-	
-	int tries = 0;
-	while (tries++ < 1000 && ((marcState = readStatusRegSafe(CC1101_MARCSTATE)) & 0b11111) != MARCSTATE_RX)
-	{
-		//setRxState();	
-		//flushTxFifo();    
-
-		if (marcState == MARCSTATE_RXFIFO_OVERFLOW)        // RX_OVERFLOW
-			flushRxFifo();              // flush receive queue
-
-		if (marcState == MARCSTATE_TXFIFO_UNDERFLOW)        // TX_UNDERFLOW
-			flushTxFifo();              // flush send queue
-
-		// Page 31, Table 23.
-		//   110 RXFIFO_OVERFLOW RX FIFO has overflowed. Read out any useful data, then flush the FIFO with SFRX
-		//   111 TXFIFO_UNDERFLOW TX FIFO has underflowed. Acknowledge with SFTX
-		//
-		
-		setRxState();
-		delay(2);
-	}
-	if (tries >= 200) 
-	{
-		// TODO: MarcState sometimes never enters the expected state; this is a hack workaround.
-		return false;
-	}
-	
-
-  /* 
-   *  Step 2: Check to see if stuff is already in the TX FIFO. If so. Flush it. 
-   */
-  txBytes = readStatusRegSafe(CC1101_TXBYTES); // Any left over bytes in the TX FIFO?
-
-  // Repurpose these variables
-  txBytes     = txBytes & BYTES_IN_FIFO;
-  txOverflow  = txBytes & OVERFLOW_IN_FIFO;
-  
-  //Serial.print("TX FIFO bytes already in FIFO (should be zero): ");
-  //Serial.println(txBytes, DEC); 
-
-  if (txBytes != 0) // only do this stuff if it's empty already
-  {
-    if (serialDebug)
-      Serial.println(F("TX FIFO is in overflow or contains garbage. Flushing. "));
-    
-    setIdleState();       // Enter IDLE state
-    flushTxFifo();        // Flush Tx FIFO
-    setRxState();         // Back to RX state
-
-  //  return false;    
-      
-  }
 
  /**
   * STEP 3: Send the radio packet.
@@ -917,30 +917,35 @@ bool CC1101::sendPacket(CCPACKET packet)
 	/* ISSUE: writeBurstReg doesn't work properly on ESP8266, or perhaps
 	   other microcontrollers... perhaps they are too fast for the CC1101
 	   given it's a 10+ year old chip.
-
 	   Sending each byte individually works without issue however.
-
 	   https://e2e.ti.com/support/wireless-connectivity/sub-1-ghz/f/156/t/554535
 	   https://e2e.ti.com/support/microcontrollers/other/f/908/t/217117
 	*/
-	// writeBurstReg(CC1101_TXFIFO, packet.data, packet.length);
+
+
+  writeBurstReg(CC1101_TXFIFO, cc1101_rx_tx_fifo_tmp_buff, CCPACKET_MAX_SIZE);
 
   // Send the contents of th RX/TX buffer to the CC1101, one byte at a time
   // the receiving CC1101 will append two bytes for the LQI and RSSI
-  for (int i = 0; i< CCPACKET_MAX_SIZE; i++)
-      writeReg(CC1101_TXFIFO,  cc1101_rx_tx_fifo_buff[i]);
+  /*
+  setIdleState();
+  flushTxFifo();
 
+  // Send crap
+  for (int i = 0; i< CCPACKET_MAX_SIZE; i++)
+     writeReg(CC1101_TXFIFO,  255);
+
+*/
   /*
 	for (uint8_t len = 0 ; len < packet.payload_size; len++)
 	  writeReg(CC1101_TXFIFO,  packet.payload[len]);
-
   // We're using fixed packet size, so need to fill with null until end
   for (uint8_t len = packet.payload_size ; len < STREAM_PKT_MAX_PAYLOAD_SIZE; len++)
     writeReg(CC1101_TXFIFO,  0x00); 
   */
 
 	// I assume the CC1101 sends the two extra CRC bytes here somewhere.
-	if (serialDebug)
+	if (debug_level >= 1)
 	{
 		Serial.print(F(">> Number of bytes to send: "));
 		Serial.println(readStatusReg(CC1101_TXBYTES) & 0x7F, DEC);
@@ -948,64 +953,40 @@ bool CC1101::sendPacket(CCPACKET packet)
 
 
 	// CCA enabled: will enter TX state only if the channel is clear
-	setTxState();
-	delay(1);
-
-	// Check that TX state is being entered (state = RXTX_SETTLING)
-	// Could also have been completed already and gone to IDLE as per the 0x18: MCSM0– Main Radio Control State Machine Configuration !
-	/*
-	if ((marcState != MARCSTATE_TX) && (marcState != MARCSTATE_TX_END) && (marcState != MARCSTATE_RXTX_SWITCH) && (marcState != MARCSTATE_IDLE) )
-	{
-		
-
-		setIdleState();       // Enter IDLE state
-		flushTxFifo();        // Flush Tx FIFO
-		setRxState();         // Back to RX state
-	}
-	*/
-
-
-  if (currentConfig[CC1101_IOCFG0] == 0x06) //if sync word detect mode is used
-  {        
-	if (serialDebug)
-		Serial.println(F("Sync word mode enabled"));
-
-    // Wait for the sync word to be transmitted
-    // wait_GDO0_high(); // should have already happened!!
-  
-    // Wait until the end of the packet transmission
-    wait_GDO0_low();
+  while (currentState != STATE_TX)
+  {
+	  setTxState();
   }
-  
-    if (serialDebug)
-    {
-		Serial.print(F("Bytes remaining in TX FIFO (should be zero):"));
-		Serial.println((readStatusRegSafe(CC1101_TXBYTES) & 0x7F), DEC);		
-	  }
 
-    // Wait until it has been sent before failing
-    while ((readStatusRegSafe(CC1101_TXBYTES) & 0x7F) > 0) { }
+
+  // Wait until it has been sent before failing
+  while ((readStatusRegSafe(CC1101_TXBYTES) & 0x7F) != 0) { }
+
+  if (debug_level >= 1)
+  {
+    Serial.print(F("Bytes remaining in TX FIFO (should be zero):"));
+    Serial.println((readStatusRegSafe(CC1101_TXBYTES) & 0x7F), DEC);		
+  }    
 
 	// Check that the TX FIFO is empty
 	if ((readStatusRegSafe(CC1101_TXBYTES) & 0x7F) == 0)
 		res = true;
 
-	setIdleState();       // Enter IDLE state
-	flushTxFifo();        // Flush Tx FIFO
 
-	// Enter back into RX state
-	setRxState();
-	
-    if (serialDebug)
+  if (debug_level >= 1)
+  {
+    if (res == true) {
+      Serial.println(F(">> TX SUCCESS."));
+    } else
     {
-      if (res == true) 
-        Serial.println(F(">>> TX COMPLETED SUCCESSFULLY."));
-	  }	
-	
+      Serial.println(F(">> TX FAILED."));
+    }
+  }	
+
+  setRxState();
+
 	return res;
 }
-
-
 
 
 /**
@@ -1021,155 +1002,189 @@ bool CC1101::sendPacket(CCPACKET packet)
 */
 bool CC1101::dataAvailable(void)
 { 
-
-/*
-  if (currentState != STATE_RX) {
-	setRxState(); 
-	//Serial.print(".");
-  }
-*/		
-  // Any packets?
-  if (!packetReceived)
-  {
-	  // A double layer of protection every 5 seconds or so
-	  // CC1100 will seemingly just randomly stop sending interrupts when RX FIFO full.
-//	  if ( (millis() - last_CCState_check) > 5000)
-//	  {
-		byte rxBytes = readStatusRegSafe(CC1101_RXBYTES) & 0b01111111;
-		if (rxBytes > 55) 
-		{
-			packetReceived = true;
-			last_CCState_check = millis();
-		}
-//  } 
-	  
-	  return false;
-  }
-  
   bool _streamReceived = false;
 
-#ifdef SERIAL_INFO
-  Serial.println(F("---------- START: RX Interrupt Request  -------------"));
-#endif  
+
+  // Only allow this to happen ever 100ms or so.
+  if ( !((millis() - cc1101_last_check) > 100) ) { return false; }
+  cc1101_last_check = millis();
+
+  //Serial.println("Test");
+
+
+  // WE COULD BE STILL reciving bytes into the RF interface whilst this number is read, so it might not be accurate!
+  byte rxBytes = readStatusRegSafe(CC1101_RXBYTES); // Unread bytes in RX FIFO according to CC1101. TODO: Need to do this safely
+
+  // Repurpose these variables
+  rxBytes     = rxBytes & BYTES_IN_FIFO;
+  byte rxOverflow  = rxBytes & OVERFLOW_IN_FIFO;
+/*
+  Serial.print("Bytes: ");
+  Serial.println(rxBytes, DEC);
+
+cmdStrobe(CC1101_SNOP);
+  printCCState();
+  */
+
+  if (rxOverflow != 0x0)
+  {
+    if (debug_level >= 1)
+      Serial.println("RX FIFO Overflow in receivePacket(). Returning 0.");
+
+    setIdleState();
+    flushRxFifo();
+    setRxState();
+    return false;
+  }
+
+
+  if (rxBytes > 0)
+  {
+    packetReceived = true;
+  }
+
+  
+  /*
+  // Get status, check for overflow
+  cmdStrobe(CC1101_SNOP);
+  if (currentState == STATE_RXFIFO_OVERFLOW)
+  {
+        flushRxFifo();
+        packetReceived = false;  
+        return false;   
+  }
+  */
 
   // We got something
-  detachGDO0Interrupt(); // we don't want to get interrupted at this important moment in history
-  packetReceived = false;
+  //detachGDO0Interrupt(); // we don't want to get interrupted at this important moment in history
+  //packetReceived = false;
 
-  CCPACKET packet;
-
-  if (receivePacket(&packet) > 0)
+  while (packetReceived) // could recieve another packet whilst recieving a packet....
   {
-	receivedRSSI = decodeCCRSSI(packet.rssi);
+    delay(500);
 
-#ifdef SERIAL_INFO	  
-    Serial.println(F("Processing packet in dataAvailable()..."));
+    if (debug_level >= 1) {
+      Serial.println(F("---------- START: RX Interrupt Request  -------------"));
+    }    
 
-    if (!packet.crc_ok)
+    packetReceived = false;
+
+    CCPACKET packet;
+    if (receivePacket(&packet) > 0)
     {
-      Serial.println(F("CRC not ok!"));
-    }
-	
-    Serial.print(F("lqi: ")); 	Serial.println(decodeCCLQI(packet.lqi));
-    Serial.print(F("rssi: ")); 	Serial.print(decodeCCRSSI(packet.rssi)); Serial.println(F("dBm"));
-#endif	
-	
+      receivedRSSI = decodeCCRSSI(packet.rssi);
 
-
-    if (packet.crc_ok && packet.payload_size > 0)
-    {
-#ifdef SERIAL_INFO	  		
-      Serial.print(F("stream_num_of_pkts: "));
-      Serial.println(packet.stream_num_of_pkts, DEC);
-      
-      Serial.print(F("stream_pkt_seq_num: "));
-      Serial.println(packet.stream_pkt_seq_num, DEC);
-      
-	  Serial.print(F("Payload_size: "));
-	  Serial.println(packet.payload_size, DEC);
-	  Serial.print(F("Data: "));
-	  Serial.println((const char *) packet.payload);
-#endif	  
-
-      // This data stream was only one packets length (i.e. < 57 bytes or so)
-      // therefore we just copy to the buffer and we're all good!
-	  
-	    // Note: Packets from rougue devices / multiple transmitting at the same time can easily break this code.
-      if (packet.stream_num_of_pkts == 1 && packet.stream_pkt_seq_num == 1 ) // It's a one packet wonder
+      if (debug_level >= 1)
       {
-        // We got the first packet in the stream so flush the buffer...
-        memset(stream_multi_pkt_buffer, 0, sizeof(stream_multi_pkt_buffer)); // flush
-        memcpy(stream_multi_pkt_buffer, packet.payload, packet.payload_size);
-		
-#ifdef SERIAL_INFO	 		
-		Serial.println(F("Single packet stream has been received."));
-#endif		
-		receivedStreamSize = packet.payload_size;
+        Serial.println(F("Processing packet in dataAvailable()..."));
 
-        _streamReceived = true;
+        if (!packet.crc_ok)
+          Serial.println(F("CRC not ok!"));
+      
+        Serial.print(F("lqi: ")); 	Serial.println(decodeCCLQI(packet.lqi));
+        Serial.print(F("rssi: ")); 	Serial.print(decodeCCRSSI(packet.rssi)); Serial.println(F("dBm"));
       }
-      else // Stream
+    
+      if (packet.crc_ok && packet.payload_size > 0)
       {
-			// TODO: deal with out-of-order packets, or different packets received from multiple 
-			//       senders at the same time. Does it matter? We're not trying to implement TCP/IP here.
-			if (packet.stream_pkt_seq_num == 1)
-				memset(stream_multi_pkt_buffer, 0, sizeof(stream_multi_pkt_buffer)); // flush
-			
-			// Copy to stream_multi_pkt_buffer to a limit of MAX_STREAM_LENGTH-1
-			unsigned int buff_start_pos = packet.stream_pkt_seq_num-1;
-			buff_start_pos *= STREAM_PKT_MAX_PAYLOAD_SIZE;
+          if (debug_level >= 2)
+          {
+          
+              Serial.print(F("stream_num_of_pkts: "));
+              Serial.println(packet.stream_num_of_pkts, DEC);
+
+              Serial.print(F("stream_pkt_seq_num: "));
+              Serial.println(packet.stream_pkt_seq_num, DEC);
+
+              Serial.print(F("Payload_size: "));
+              Serial.println(packet.payload_size, DEC);
+              Serial.print(F("Data: "));
+              Serial.println((const char *) packet.payload);
+              
+          }
+
+        // This data stream was only one packets length (i.e. < 57 bytes or so)
+        // therefore we just copy to the buffer and we're all good!
       
-			unsigned int buff_end_pos 	= buff_start_pos + (unsigned int) packet.payload_size;
-			
-			// HACK: REMOVE
-#ifdef SERIAL_INFO	 			
-			Serial.print("HEX content of packet:");
-			for (int i = 0; i < packet.payload_size; i++)
-			{
-				Serial.print(packet.payload[i], HEX); Serial.print(" ");
-			}
-#endif			
+        // Note: Packets from rougue devices / multiple transmitting at the same time can easily break this code.
+        if (packet.stream_num_of_pkts == 1 && packet.stream_pkt_seq_num == 1 ) // It's a one packet wonder
+        {
+          // We got the first packet in the stream so flush the buffer...
+          memset(stream_multi_pkt_buffer, 0, sizeof(stream_multi_pkt_buffer)); // flush
+          memcpy(stream_multi_pkt_buffer, packet.payload, packet.payload_size);
+        
+          if (debug_level >= 1)
+          {
+              Serial.println(F("Single packet stream has been received."));
+          }
 
-			
-		//	if (serialDebug)
-#ifdef SERIAL_INFO	 		
-			Serial.printf("Received stream packet %d of %d. Buffer start position: %d, end position %d, payload size: %d\r\n", (int)packet.stream_pkt_seq_num, (int)packet.stream_num_of_pkts, (int)buff_start_pos, (int)buff_end_pos, (int) packet.payload_size);
-#endif			
+          receivedStreamSize = packet.payload_size;
 
-			if ( buff_end_pos > MAX_STREAM_LENGTH)
-			{
-				if (serialDebug)
-					Serial.println(F("Received a stream bigger than allowed. Dropping."));				
-			}
-			else
-			{
-				memcpy( &stream_multi_pkt_buffer[buff_start_pos], packet.payload, packet.payload_size); // copy packet payload  
-				
-				// Are we at the last packet?
-				if (packet.stream_num_of_pkts ==  packet.stream_pkt_seq_num)
-				{
-#ifdef SERIAL_INFO	            
-					Serial.printf("Multi-packet stream of %d bytes hase been received in full!\n", buff_end_pos);
-#endif					
-					receivedStreamSize = buff_end_pos;
-					_streamReceived = true;
-				}
-				
-			} // end buffer size check
-			
+          _streamReceived = true;
+        }
+        else // Stream
+        {
+          // TODO: deal with out-of-order packets, or different packets received from multiple 
+          //       senders at the same time. Does it matter? We're not trying to implement TCP/IP here.
+          if (packet.stream_pkt_seq_num == 1)
+            memset(stream_multi_pkt_buffer, 0, sizeof(stream_multi_pkt_buffer)); // flush
+          
+          // Copy to stream_multi_pkt_buffer to a limit of MAX_STREAM_LENGTH-1
+          unsigned int buff_start_pos = packet.stream_pkt_seq_num-1;
+          buff_start_pos *= STREAM_PKT_MAX_PAYLOAD_SIZE;
+          
+          unsigned int buff_end_pos 	= buff_start_pos + (unsigned int) packet.payload_size;
+        
+            // HACK: REMOVE
+          if (debug_level >= 3)
+          {
+            Serial.print("HEX content of packet:");
+            for (int i = 0; i < packet.payload_size; i++)
+            {
+              Serial.print(packet.payload[i], HEX); Serial.print(" ");
+            }
+        
+            Serial.printf("Received stream packet %d of %d. Buffer start position: %d, end position %d, payload size: %d\r\n", (int)packet.stream_pkt_seq_num, (int)packet.stream_num_of_pkts, (int)buff_start_pos, (int)buff_end_pos, (int) packet.payload_size);
+          }
 
-      } // end single packet stream check or not.
+          if ( buff_end_pos > MAX_STREAM_LENGTH)
+          {
+            if (debug_level >= 1)
+              Serial.println(F("Received a stream bigger than allowed. Dropping."));				
+          }
+          else
+          {
+            memcpy( &stream_multi_pkt_buffer[buff_start_pos], packet.payload, packet.payload_size); // copy packet payload  
+            
+            // Are we at the last packet?
+            if (packet.stream_num_of_pkts ==  packet.stream_pkt_seq_num)
+            {
 
-    } // end packet length & crc check
-	
-  } // packet isn't just 0's check
+                if (debug_level >= 1) {
+                  Serial.printf("Multi-packet stream of %d bytes hase been received in full!\n", buff_end_pos);
+                }
 
-  attachGDO0Interrupt();
-  
-#ifdef SERIAL_INFO  
-  Serial.println(F("---------- END: RX Interrupt Request  -------------"));
-#endif
+              receivedStreamSize = buff_end_pos;
+              _streamReceived = true;
+            }
+            
+          } // end buffer size check
 
+
+        } // end single packet stream check or not.
+
+      } // end packet length & crc check
+    
+    } // packet isn't just 0's check
+
+      
+    if (debug_level >= 1)
+      Serial.println(F("---------- END: RX Interrupt Request  -------------"));
+
+
+    }
+
+  // attachGDO0Interrupt();
   return _streamReceived;
 }
 
@@ -1220,223 +1235,190 @@ uint16_t CC1101::getSize(void)
 byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
 {
   unsigned long start_tm, end_tm;
-  byte val;
-  byte rxBytes, rxBytesVerify, rxOverflow;   
-
-
-  /* 
-   *  STEP 1: Check that what we have in the RX buffer makes sense, for this library
-   *  we are always sending 61 bytes of payload + 2 bytes for RSSI, so 63 bytes in
-   *  total for every radio packet.
-   */
+  byte val;  
 
   start_tm = millis();
 
-#ifdef SERIAL_INFO	 
-  Serial.print(F("* Packet Received on channel: "));
-  Serial.println(channel, DEC);
-#endif  
+  /* 
+    *  From the documentation:
+    *  
+    *  The TX FIFO may be flushed by issuing a
+    *  SFTX command strobe. Similarly, a SFRX
+    *  command strobe will flush the RX FIFO. A
+    *  SFTX or SFRX command strobe can only be
+    *  issued in the IDLE, TXFIFO_UNDERFLOW, or
+    *  RXFIFO_OVERFLOW states. Both FIFO
+    *  
+    */
 
-  if (currentConfig[CC1101_IOCFG0] == 0x06) //if sync word detect mode is used
-  {
-    if (serialDebug)
-      Serial.println(F("* Sync Word Wait"));
-		
-  	// Reference: https://github.com/SpaceTeddy/CC1101
-  	wait_Miso();
-  }
-
-  _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); _NOP(); 
-
-  
-  rxBytes = readStatusRegSafe(CC1101_RXBYTES); // Unread bytes in RX FIFO according to CC1101. TODO: Need to do this safely
-  /*
-  // as per: http://e2e.ti.com/support/wireless-connectivity/other-wireless/f/667/t/334528?CC1101-Random-RX-FIFO-Overflow
-  do
-  {
-      rxBytes = rxBytesVerify;
-      rxBytesVerify = readStatusReg(CC1101_RXBYTES);
-  }
-  while(rxBytes != rxBytesVerify);   
-  */
-  
-  // Repurpose these variables
-  rxBytes     = rxBytes & BYTES_IN_FIFO;
-  rxOverflow  = rxBytes & OVERFLOW_IN_FIFO;
-  
-#ifdef SERIAL_INFO	   
-  Serial.print(F("* RX FIFO bytes pending read: "));
-  Serial.println(rxBytes, DEC);
-#endif  
-/*
-  ---------- START: RX Interrupt Request  -------------
-  Packet Received
-  RX FIFO bytes pending read: 63
-  ---------- END RX Interrupt Request -------------
- */
-
- /* 
-  *  From the documentation:
-  *  
-  *  The TX FIFO may be flushed by issuing a
-  *  SFTX command strobe. Similarly, a SFRX
-  *  command strobe will flush the RX FIFO. A
-  *  SFTX or SFRX command strobe can only be
-  *  issued in the IDLE, TXFIFO_UNDERFLOW, or
-  *  RXFIFO_OVERFLOW states. Both FIFO
-  *  
-  */
-
- if ( rxOverflow )
- {
-
-#ifdef SERIAL_INFO	 
-    Serial.println(F("RX was in overflow. Salvaging what we can."));
-#endif	
-
-      /*
-    flushRxFifo();        // Flush Rx FIFO
-  
-    // Back to RX state
-    setRxState();
-
-    packet->payload_size = 0;
-    
-    return packet->payload_size;   
-	*/
- }
-
-
- /**
-  * STEP 2: Got the right number of bytes in RX FIFO. Might be one for us?
-  */
- if ( rxBytes <= CCPACKET_REC_SIZE  ) // if we have more then it's probably due to overflow, try and salvage the CCPACKET_REC_SIZE bytes we do get
- {
+    /**
+      * There is NO guarantee that the full packet size will be in the FIFO buffer if we're using a slow throughput
+      * so we must get what we can get, and once we CCPACKET_REC_SIZE, process the packet. 
+      */
 
     // Copy contents of FIFO in the buffer from CC1101 
-    memset(cc1101_rx_tx_fifo_buff, 0x00, sizeof(cc1101_rx_tx_fifo_buff)); // flush the temporary array.
-//    readBurstReg(cc1101_rx_tx_fifo_buff, CC1101_RXFIFO, 63); // Can't use readburst due to bizzare SPI issues
+    memset(cc1101_rx_tx_fifo_tmp_buff, 0x00, sizeof(cc1101_rx_tx_fifo_tmp_buff)); // flush the temporary array.
 
-    // Copy contents of FIFO in the buffer from CC1101 one byte at a time
-    for (int i = 0; i< CCPACKET_REC_SIZE; i++)
-        cc1101_rx_tx_fifo_buff[i] = readConfigReg(CC1101_RXFIFO);
-            
+    while (getRxFIFOBytes() < CCPACKET_REC_SIZE) { }
+
+    readBurstReg(cc1101_rx_tx_fifo_tmp_buff, CC1101_RXFIFO, CCPACKET_REC_SIZE);
+
 
     /*
-     
-          /// TEST CODE
-          for (int i = 0; i< 63; i++)
-            readConfigReg(CC1101_RXFIFO);
-        
-          flushRxFifo();        // Flush Rx FIFO
-          
-          // Back to RX state
-          setRxState();
-
-          packet->payload_size = 0;
-
-          return packet->payload_size;
-          /// TEST CODE          
-     */
-  
-     packet->cc_dest_address      = cc1101_rx_tx_fifo_buff[0]; // byte 1     
-     packet->payload_size         = cc1101_rx_tx_fifo_buff[1]; // byte 2
-
-#ifdef SERIAL_INFO
-     if (packet->cc_dest_address == BROADCAST_ADDRESS)
-      Serial.println(F("* Received broadcast packet"));
-
-      Serial.print(F("Payload size is: "));
-      Serial.println(packet->payload_size, DEC);
-#endif	
-
-    // The payload size contained within this radio packet is too big?
-    if ( packet->payload_size > STREAM_PKT_MAX_PAYLOAD_SIZE ) 
-	  {
-		  packet->payload_size = 0;   // Discard packet
-
-      if (serialDebug)
-         Serial.println(F("Error: Receieved packet too big or payload length non sensical!"));
-    }
-    else
+    int     deadlock_watch = 0;
+    uint8_t counter = 0;
+    uint8_t avail_bytes = 0;
+    bool loop = true;
+    while (loop)
     {
+        avail_bytes = getRxFIFOBytes();
+        Serial.println("Got stuff from rx Fifo.");
+        for (uint8_t i = 0; i < avail_bytes; i++) {
+            cc1101_rx_tx_fifo_tmp_buff[counter] = readConfigReg(CC1101_RXFIFO);        
 
-      packet->stream_num_of_pkts      = cc1101_rx_tx_fifo_buff[2]; // byte 3
-      packet->stream_pkt_seq_num      = cc1101_rx_tx_fifo_buff[3]; // byte 4
 
+            if (++counter == CCPACKET_REC_SIZE) 
+            { loop = false; break; }
 
-      // Want to reduce the 'length' field for high-order functions like dataAvailable(), otherwise we end up reading the RSSI & LQI as characters!
-      memcpy( packet->payload, &cc1101_rx_tx_fifo_buff[4], packet->payload_size);
-      //readBurstReg(packet->payload, CC1101_RXFIFO, rxBytes-4);
+        }
 
-      /*
-      Serial.print("Payload Data: ");
-      for (int i = 0; i < packet->payload_size; i++)
+      //  delay(5);
+        if (deadlock_watch++ > 100) return 0; // get outta here.
+    }
+    */
+
+  //  Serial.print("Counter is:"); Serial.println(counter, DEC);
+
+  //  if (counter < CCPACKET_REC_SIZE) return 0;
+
+    if (debug_level >= 2)
+    {
+      Serial.print("Packet Data: ");
+      for (int i = 0; i < CCPACKET_REC_SIZE; i++)
       {
-        Serial.print(packet->payload[i], HEX);
+        Serial.print(cc1101_rx_tx_fifo_tmp_buff[i], BIN);
         Serial.print(", ");
       }
       Serial.println("");
-      */
 
-      // Read RSSI
-      packet->rssi = cc1101_rx_tx_fifo_buff[CCPACKET_REC_SIZE-2];
-
-      // Read LQI and CRC_OK
-      val = cc1101_rx_tx_fifo_buff[CCPACKET_REC_SIZE-1]; // 62 in array speak (which is 63 in real life)
-      
-
-      // Read RSSI
-      // packet->rssi = readConfigReg(CC1101_RXFIFO); //byte 5 + n + 1
-
-      // Read LQI and CRC_OK
-      // val = readConfigReg(CC1101_RXFIFO); // byte 5 + n + 2
-
-      packet->lqi = val & 0x7F;
-      packet->crc_ok = bitRead(val, 7);
+      Serial.print("Packet Data (char): ");
+      for (int i = 0; i < CCPACKET_REC_SIZE; i++)
+      {
+        Serial.print((char)cc1101_rx_tx_fifo_tmp_buff[i]);
+        Serial.print(", ");
+      }
+      Serial.println("");
     }
-  }
- else
- {           
-    packet->payload_size = 0;
- }
 
-  /* 
-   *  STEP 3: We're done, so flush the RxFIFO.
-   */
-  
-  if (!rxOverflow)  
-  {
-   setIdleState();       // Enter IDLE state before flushing RxFifo (don't need to do this when Overflow has occured)
-   delayMicroseconds(1);
-  }
-  flushRxFifo();        // Flush Rx FIFO
-  //cmdStrobe(CC1101_SCAL);
+      packet->cc_dest_address      = cc1101_rx_tx_fifo_tmp_buff[0]; // byte 1     
+      packet->payload_size         = cc1101_rx_tx_fifo_tmp_buff[1]; // byte 2
 
-  // Read what's left, this should be zero?
-  rxBytes = readStatusReg(CC1101_RXBYTES); // Unread bytes in RX FIFO according to CC1101. TODO: Need to do this safely
-  
-  // Repurpose these variables
-  rxBytes     = rxBytes & BYTES_IN_FIFO;
-  rxOverflow  = rxBytes & OVERFLOW_IN_FIFO;
+      if (debug_level >= 2)
+      {
 
-#ifdef SERIAL_INFO	 
-  if ( rxBytes != 0 )
-  {
-    Serial.print(F("Error: Bytes left over in RX FIFO: "));
-    Serial.println(rxBytes, DEC);  
-  }
-#endif  
+        if (packet->cc_dest_address == BROADCAST_ADDRESS)
+          Serial.println(F("* Received broadcast packet"));
 
-  
-  // Back to RX state
-  setRxState();
+          Serial.print(F("Payload size is: "));
+          Serial.println(packet->payload_size, DEC);
+      }
 
-#ifdef SERIAL_INFO	 
-  Serial.printf("Took %d milliseconds to complete recievePacket()\n", (millis() - start_tm));
-#endif  
+      // TESTING ONLY
+     // packet->payload_size = 6;
 
-  return packet->payload_size;
+      // The payload size contained within this radio packet is too big?
+      if ( packet->payload_size > STREAM_PKT_MAX_PAYLOAD_SIZE ) 
+      {
+        packet->payload_size = 0;   // Discard packet
+
+        if (debug_level >= 1)
+          Serial.println(F("Error: Receieved packet too big or payload length non sensical!"));
+      }
+      else
+      {
+
+        packet->stream_num_of_pkts      = cc1101_rx_tx_fifo_tmp_buff[2]; // byte 3
+        packet->stream_pkt_seq_num      = cc1101_rx_tx_fifo_tmp_buff[3]; // byte 4
+
+
+        // Want to reduce the 'length' field for high-order functions like dataAvailable(), otherwise we end up reading the RSSI & LQI as characters!
+        memcpy( packet->payload, &cc1101_rx_tx_fifo_tmp_buff[4], packet->payload_size);
+        //readBurstReg(packet->payload, CC1101_RXFIFO, rxBytes-4);
+
+      if (debug_level >= 2)
+      {     
+          Serial.print("RX Buffer Data: ");
+          for (int i = 0; i < CCPACKET_REC_SIZE; i++) // include lqi and rssi bytes
+          {
+            Serial.print(cc1101_rx_tx_fifo_tmp_buff[i], HEX);
+            Serial.print(", ");
+          }
+          Serial.println("");
+      }
+
+      
+      }
+
+       // Read RSSI
+        packet->rssi = cc1101_rx_tx_fifo_tmp_buff[CCPACKET_REC_SIZE-2];
+
+        // Read LQI and CRC_OK
+        val = cc1101_rx_tx_fifo_tmp_buff[CCPACKET_REC_SIZE-1]; // 62 in array speak (which is 63 in real life)
+        
+
+        // Read RSSI
+        // packet->rssi = readConfigReg(CC1101_RXFIFO); //byte 5 + n + 1
+
+        // Read LQI and CRC_OK
+        // val = readConfigReg(CC1101_RXFIFO); // byte 5 + n + 2
+
+        packet->lqi = val & 0x7F;
+        packet->crc_ok = bitRead(val, 7);      
+
+
+      /* 
+      *  STEP 3: We're done, so flush the RxFIFO.
+      */
+      // Note: do NOT do this as it will cause a calibration, and if the other side sends a packet quickly thereafter, it will be missed.
+      /* 
+      State: STATE_RX
+      State: STATE_IDLE
+      State: STATE_IDLE
+      State: STATE_CALIBRATE
+      State: STATE_CALIBRATE
+      State: STATE_CALIBRATE
+      State: STATE_CALIBRATE
+      State: STATE_RX
+      State: STATE_RX
+      */
+ 
+ /*
+      // Read what's left, this should be zero?
+      rxBytes = readStatusRegSafe(CC1101_RXBYTES); // Unread bytes in RX FIFO according to CC1101. TODO: Need to do this safely
+      
+      // Repurpose these variables
+      rxBytes     = rxBytes & BYTES_IN_FIFO;
+      rxOverflow  = rxBytes & OVERFLOW_IN_FIFO;
+
+      if ( rxBytes != 0 )
+      {
+        Serial.print(F("Warning: Bytes left over in RX FIFO: "));
+        Serial.println(rxBytes, DEC);  
+
+        for (int i = 0; i<rxBytes; i++)
+        {
+           readConfigReg(CC1101_RXFIFO); // read out the garbage.
+        }
+      }
+      
+   */ 
+    // Back to RX state
+    setRxState();
+
+    if (debug_level >= 1)
+      Serial.printf("Took %d milliseconds to complete recievePacket()\n", (millis() - start_tm));
+
+    return packet->payload_size;
 }
 
 /**
@@ -1446,7 +1428,17 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
 */
 void CC1101::setRxState(void)
 {
-  cmdStrobe(CC1101_SRX);
+    cmdStrobe(CC1101_SRX);
+  
+    // Enter back into RX state
+    while (currentState != STATE_RX) { 
+      cmdStrobe(CC1101_SNOP); 
+      setRxState();
+      delay(5);
+    }
+	  
+
+
 }
 
 /**
@@ -1477,31 +1469,23 @@ void CC1101::setOutputPowerLeveldBm(int8_t dBm)
     else if (dBm <= 0)   pa_table_index = 0x04;
     else if (dBm <= 5)   pa_table_index = 0x05;
     else if (dBm <= 7)   pa_table_index = 0x06;
-    else if (dBm <= 10)  pa_table_index = 0x07;
+    else pa_table_index = 0x07;
 	
 	// now pick the right PA table values array to 
 	switch (carrierFreq)
 	{
 		case CFREQ_922:
 
-		  if (serialDebug)
-			Serial.print(F("Using PA Table for 922Mhz frequency (Canada, US, Australia)"));
-		
 		  pa_value = patable_power_9XX[pa_table_index];
 		  break;
 		  
 		case CFREQ_433:
 
-		  if (serialDebug)
-			Serial.print(F("Using PA Table for 433Mhz frequency"));
 
 		  pa_value = patable_power_433[pa_table_index];
 		  break;
 		  
 		default:
-
-		  if (serialDebug)
-			Serial.print(F("Using PA Table for 868Mhz frequency (Europe)"));
 
 
 		  pa_value = patable_power_868[pa_table_index];
@@ -1509,8 +1493,11 @@ void CC1101::setOutputPowerLeveldBm(int8_t dBm)
 		  
 	  }
 	  
-	Serial.print(F("Setting PATABLE0 value to: "));
-	Serial.println(pa_value, HEX);
+
+  if (debug_level == 1) { 
+	  Serial.print(F("Setting PATABLE0 value to: "));
+	  Serial.println(pa_value, HEX);
+  }
 	  
 	// Now write the value
 	for (uint8_t i = 0; i < 8; i++)
@@ -1521,95 +1508,6 @@ void CC1101::setOutputPowerLeveldBm(int8_t dBm)
 	
 	
 	
-
-/**
-	Print the PA Table Values to the Serial Console
-*/
-
-void CC1101::printPATable(void)
-{
-  //Serial.print(F("Printing PA Table Value:"));
-/*  Serial.println(readReg(CC1101_PARTNUM, CC1101_STATUS_REGISTER));
-  Serial.print(F("CC1101_VERSION "));
-  Serial.println(readReg(CC1101_VERSION, CC1101_STATUS_REGISTER));
-  Serial.print(F("CC1101_MARCSTATE "));
-  Serial.println(readReg(CC1101_MARCSTATE, CC1101_STATUS_REGISTER) & 0x1f);
-  */
-    
-  byte reg_value    = 0;  
-
-  Serial.println(F("--------- CC1101 PA Table Dump --------- "));
-  for (uint8_t i = 0; i < 8; i++)
-  {
-    Serial.print(F("PA Table entry "));
-    Serial.print(i);
-    Serial.print(F(" = "));
-
-	// reg_value = readStatusRegSafe(CC1101_PATABLE);
-    reg_value = readReg(CC1101_PATABLE, CC1101_CONFIG_REGISTER); // CC1101_CONFIG_REGISTER = READ_SINGLE_BYTE
-    Serial.println(reg_value, HEX);
-	
-    delay(10);
-  }
-  
-} // end printPATable
-
-
-
-/**
-	Print the Configuration Values and Check Them
-*/
-bool CC1101::printCConfigCheck(void)
-{
-  Serial.println(F("--------- Checking Key CC1101 h/w values --------- "));
-  
-  Serial.print(F("CC1101_PARTNUM: "));
-  Serial.println(readReg(CC1101_PARTNUM, CC1101_STATUS_REGISTER));
-  Serial.print(F("CC1101_VERSION [Expect 20]: "));
-  Serial.println(readReg(CC1101_VERSION, CC1101_STATUS_REGISTER));
-  Serial.print(F("CC1101_MARCSTATE: "));
-  Serial.println(readReg(CC1101_MARCSTATE, CC1101_STATUS_REGISTER) & 0x1f);
-
-  // Register validation check
-  bool reg_check_pass = true;
-
-  char reg_name[16] = {0};
-  byte reg_value    = 0;
-
-  Serial.println(F("--------- CC1101 Register Configuration Dump --------- "));
-  for (uint8_t i = 0; i < NUM_CONFIG_REGISTERS; i++)
-  {
-    Serial.print(F("Reg "));
-    strcpy_P(reg_name, CC1101_CONFIG_REGISTER_NAME[i]);
-    Serial.print(reg_name);
-    Serial.print(F(" ( "));
-    Serial.print(i, HEX);
-    Serial.print(F(" ) "));
-    Serial.print(F(" = "));
-
-    reg_value = readReg(i, CC1101_CONFIG_REGISTER);
-    Serial.println(reg_value, HEX);
-
-    if (( currentConfig[i] != reg_value) &&  (i <= CC1101_RCCTRL0) ) // ignore the TEST registers beyond CC1101_RCCTRL0 (i.e. register 41 onwards)
-    {
-      reg_check_pass = false;
-      Serial.print(F("ERROR: This register does not match expected value of: "));
-      Serial.println(currentConfig[i], HEX);
-    }
-
-    delay(10);
-  }
-
-  if (reg_check_pass) {
-    Serial.println(F("PASS: Config reg values are as expected."));
-  } else {
-    Serial.println(F("*** WARNING: Config reg values NOT as expected. Check these! ***"));
-  }
-
-  return reg_check_pass;
-  
-} // end printCConfigCheck
-
 /**
 	Read the ChipCon Status Byte returned as a by-product of SPI communications.
 	Not quite sure this is reliable however.
@@ -1647,32 +1545,179 @@ void CC1101::readCCStatus(byte status)
       currentState = STATE_UNKNOWN;
   }
   
-  // TODO: Do something when we hit OVERFLOW / UNDERFLOW STATE.
-
-  // Get out here if we're not doing detailed logging
-  if (!serialDebug) return;
-
-  //Serial.print("Returned Status in binary: ");
-  //Serial.println(status, BIN);
-
   // Refer to page 31 of cc1101.pdf
   // Bit 7    = CHIP_RDY
   // Bit 6:4  = STATE[2:0]
   // Bit 3:0  = FIFO_BYTES_AVAILABLE[3:0]
   if ( !(0b01000000 & status) == 0x00) // is bit 7 0 (low)
   {
-    if (serialDebug)
-      Serial.println(F("SPI Result: FAIL: CHIP_RDY is LOW! The CC1101 isn't happy. Has a over/underflow occured?"));
+    if (debug_level >= 1)
+    {
+      Serial.print(F("SPI Result: FAIL: CHIP_RDY is LOW! The CC1101 is in state: "));
+      printCCState();
+      printCCFIFOState();
+    }
   }
 
-  if (serialDebug)
+  if (debug_level >= 2)
   {
       printCCState();
   
-      Serial.print(F("SPI Result: Bytes free in FIFO: "));
-      Serial.println( (0b00001111 & status), DEC); // Only the first three bytes matter
+      //Serial.print(F("SPI Result: Bytes free in FIFO: "));
+      //Serial.println( (0b00001111 & status), DEC); // Only the first three bytes matter
   }
 }
+
+
+
+
+void CC1101::set_debug_level(uint8_t set_debug_level)
+{
+    debug_level = set_debug_level;        //set debug level of CC1101 outputs
+}
+
+
+
+
+/**
+   writeBurstReg
+   Write multiple registers into the CC1101 IC via SPI
+   BUG: Doesn't seem to work when writing to configuration registers
+        Breaks the CC1101. Might be ESP SPI issue.
+   'regAddr'  Register address
+   'buffer' Data to be writen
+   'len'  Data length
+*/
+
+void CC1101::writeBurstReg(byte regAddr, byte* buffer, byte len)
+{
+  byte addr, i;
+  if (debug_level >= 2)
+  {
+    Serial.println(F("Performing writeBurstReg."));
+  }
+  addr = regAddr | WRITE_BURST;         // Enable burst transfer
+  cc1101_Select();                      // Select CC1101
+  wait_Miso();                          // Wait until MISO goes low
+  SPI.transfer(addr);                   // Send register address
+  for (i = 0 ; i < len ; i++)
+    SPI.transfer(buffer[i]);            // Send values
+  cc1101_Deselect();                    // Deselect CC1101
+}
+
+
+/**
+   readBurstReg
+   Read burst data from CC1101 via SPI
+   'buffer' Buffer where to copy the result to
+   'regAddr'  Register address
+   'len'  Data length
+   BUG: Not reliable on ESP8266. SPI timing issues.
+*/
+
+void CC1101::readBurstReg(byte * buffer, byte regAddr, byte len)
+{
+  byte addr, i;
+  if (debug_level >= 2) {
+    Serial.println(F("Performing readBurstReg"));
+  }
+  addr = regAddr | READ_BURST;
+  cc1101_Select();                      // Select CC1101
+  wait_Miso();                          // Wait until MISO goes low
+  SPI.transfer(addr);                   // Send register address
+  for (i = 0 ; i < len ; i++)
+    buffer[i] = SPI.transfer(0x00);     // Read result byte by byte
+  cc1101_Deselect();                    // Deselect CC1101
+
+  if (debug_level >= 1)
+    Serial.printf("Read %d bytes.\n", len);
+
+}
+
+
+
+
+
+
+
+
+/******************************* Debug / Printing Stufff *********************************/
+
+/**
+	Print the PA Table Values to the Serial Console
+*/
+
+void CC1101::printPATable(void)
+{
+  //Serial.print(F("Printing PA Table Value:"));
+/*  Serial.println(readReg(CC1101_PARTNUM, CC1101_STATUS_REGISTER));
+  Serial.print(F("CC1101_VERSION "));
+  Serial.println(readReg(CC1101_VERSION, CC1101_STATUS_REGISTER));
+  Serial.print(F("CC1101_MARCSTATE "));
+  Serial.println(readReg(CC1101_MARCSTATE, CC1101_STATUS_REGISTER) & 0x1f);
+  */
+    
+  byte reg_value    = 0;  
+
+  Serial.println(F("--------- CC1101 PA Table Dump --------- "));
+  for (uint8_t i = 0; i < 8; i++)
+  {
+    Serial.print(F("PA Table entry "));
+    Serial.print(i);
+    Serial.print(F(" = "));
+
+	// reg_value = readStatusRegSafe(CC1101_PATABLE);
+    reg_value = readReg(CC1101_PATABLE, CC1101_CONFIG_REGISTER); // CC1101_CONFIG_REGISTER = READ_SINGLE_BYTE
+    Serial.println(reg_value, HEX);
+  }
+  
+} // end printPATable
+
+/**
+	Print the Configuration Values and Check Them
+*/
+bool CC1101::printCConfigCheck(void)
+{
+  // Register validation check
+  bool reg_check_pass = true;
+
+  char reg_name[16] = {0};
+  byte reg_value    = 0;
+
+  Serial.println(F("--------- CC1101 Register Configuration Dump --------- "));
+  for (uint8_t i = 0; i < NUM_CONFIG_REGISTERS; i++)
+  {
+    Serial.print(F("Reg "));
+    strcpy_P(reg_name, CC1101_CONFIG_REGISTER_NAME[i]);
+    Serial.print(reg_name);
+    Serial.print(F(" ( "));
+    Serial.print(i, HEX);
+    Serial.print(F(" ) "));
+    Serial.print(F(" = "));
+
+    reg_value = readReg(i, CC1101_CONFIG_REGISTER);
+    Serial.print (reg_value, HEX);
+
+    if (( currentConfig[i] != reg_value) &&  (i <= CC1101_RCCTRL0) ) // ignore the TEST registers beyond CC1101_RCCTRL0 (i.e. register 41 onwards)
+    {
+      reg_check_pass = false;
+      Serial.print(F(" ERROR: Register does not match expected value: "));
+      Serial.print(currentConfig[i], HEX);
+    }
+    Serial.println("");
+
+  }
+
+  if (reg_check_pass) {
+    Serial.println(F("PASS: Config reg values are as expected."));
+  } else {
+    Serial.println(F("*** WARNING: Config reg values NOT as expected. Check these! ***"));
+  }
+
+  return reg_check_pass;
+  
+} // end printCConfigCheck
+
 
 /**
 	Convert the current CC status into English and print to the console.
@@ -1682,17 +1727,17 @@ void CC1101::printCCState(void)
 
   switch (currentState)
   {
-    case (STATE_IDLE):              Serial.print(F("STATE_IDLE")); break;
-    case (STATE_RX):                Serial.print(F("STATE_RX")); break;
-    case (STATE_TX):                Serial.print(F("STATE_TX")); break;
-    case (STATE_FSTXON):            Serial.print(F("STATE_FSTXON")); break;
-    case (STATE_CALIBRATE):         Serial.print(F("STATE_CALIBRATE")); break;
-    case (STATE_SETTLING):          Serial.print(F("STATE_SETTLING")); break;
-    case (STATE_RXFIFO_OVERFLOW):   Serial.print(F("STATE_RXFIFO_OVERFLOW")); break;
-    case (STATE_TXFIFO_UNDERFLOW):  Serial.print(F("STATE_TXFIFO_UNDERFLOW")); break;
-    default:   Serial.print(F("UNKNOWN STATE")); break;
+    case (STATE_IDLE):              Serial.println(F("STATE_IDLE")); break;
+    case (STATE_RX):                Serial.println(F("STATE_RX")); break;
+    case (STATE_TX):                Serial.println(F("STATE_TX")); break;
+    case (STATE_FSTXON):            Serial.println(F("STATE_FSTXON")); break;
+    case (STATE_CALIBRATE):         Serial.println(F("STATE_CALIBRATE")); break;
+    case (STATE_SETTLING):          Serial.println(F("STATE_SETTLING")); break;
+    case (STATE_RXFIFO_OVERFLOW):   Serial.println(F("STATE_RXFIFO_OVERFLOW")); break;
+    case (STATE_TXFIFO_UNDERFLOW):  Serial.println(F("STATE_TXFIFO_UNDERFLOW")); break;
+    default:   Serial.println(F("UNKNOWN STATE")); break;
   }
-  Serial.println("");
+
 }
 
 /**
@@ -1721,8 +1766,7 @@ void CC1101::printCCFIFOState(void)
 */	
 void CC1101::printMarcstate(void)
 {
-
-      byte marcState =  readStatusRegSafe(CC1101_MARCSTATE) & 0x1F;
+      byte marcState =  getMarcState();
 
       Serial.print(F("Marcstate: "));
       switch (marcState) 

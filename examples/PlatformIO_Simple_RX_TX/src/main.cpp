@@ -61,15 +61,15 @@ void setup()
 
     Serial.println("Starting...");
 
-    //radio.enableSerialDebug();
+    //radio.set_debug_level(1);
 
     // Start RADIO
-    radio.begin(CFREQ_433, KBPS_250, RADIO_CHANNEL, DEVICE_ADDRESS, GDO0_INTERRUPT_PIN /* Interrupt */);  // channel 16! Whitening enabled 
+    while (!radio.begin(CFREQ_433, RADIO_CHANNEL, DEVICE_ADDRESS, GDO0_INTERRUPT_PIN /* Interrupt */));   // channel 16! Whitening enabled 
 
     radio.setOutputPowerLeveldBm(10); // max power
      
     delay(1000); // Try again in 5 seconds
-    radio.printCConfigCheck();     
+    //radio.printCConfigCheck();     
 
     Serial.println(F("CC1101 radio initialized."));
     recieve_payload.reserve(512);
@@ -77,19 +77,23 @@ void setup()
     // IMPORTANT: Kick the radio into receive mode, otherwise it will sit IDLE and be TX only.
     radio.setRxState();
 
-    sendDelay = random(1000, 3000);
+    sendDelay = 6000; //random(1000, 3000);
 #if !defined(RECIEVE_ONLY)    
     Serial.printf("Sending a message every %d ms.\n", sendDelay);
 #endif 
 
+  //  radio.printPATable();
+
 }
 
+//void loop() { }
 void loop() 
 {
     unsigned long now = millis();
     
     if ( radio.dataAvailable() )
     {       
+        Serial.println("Data available.");
         digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)           
 
         recieve_payload  = String(radio.getChars()); // pointer to memory location of start of string
@@ -100,29 +104,42 @@ void loop()
         digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW   
 
     }
-  
-#if !defined(RECIEVE_ONLY)
 
     // Periodically send something random.
     if (now > lastSend) 
     {
+
+        radio.printMarcstate();
+#if !defined(RECIEVE_ONLY)
+
+        Serial.println("Sending message.");        
         digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
-        send_payload = "Sending message " + String (counter) + " from device " + String(DEVICE_ADDRESS);
-        
+        //send_payload = "Sending a large and long messages " + String (counter) + " from device " + String(DEVICE_ADDRESS) + ". Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book.";
+        //send_payload = "0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789";
+        send_payload = "0123456789------------------------------------------012345";
+     //   send_payload = "0123456789---------------------------------------------XX";
+        //    send_payload = "0123456789";    
         //radio.sendChars("Testing 123", DEST_ADDRESS);     
         radio.sendChars(send_payload.c_str(), DEST_ADDRESS);     
 
         Serial.print("Payload sent: ");
         Serial.println(send_payload);        
                 
-        lastSend = now + sendDelay;
+       
 
         counter++;
 
+        // IMPORTANT: Kick the radio into receive mode, otherwise it will sit IDLE and be TX only.
+        radio.setRxState();        
+
         delay(100);
         digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW        
+
+#endif     
+
+        lastSend = now + sendDelay;
     }
 
-#endif
+
 
 }
