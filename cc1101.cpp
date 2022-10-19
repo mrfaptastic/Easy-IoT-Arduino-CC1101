@@ -486,12 +486,14 @@ void CC1101::setCCregs(void)
 
       writeReg(CC1101_MDMCFG4, 0x2D); // Modem Configuration      
       writeReg(CC1101_MDMCFG3, 0x3B); // Modem Configuration
-      //writeReg(CC1101_MDMCFG2,  0x13);
 
-      // writeReg(CC1101_MDMCFG2,  0x1B); // gfsk + enable manchester encoding
+      // https://e2e.ti.com/support/wireless-connectivity/other-wireless-group/other-wireless/f/other-wireless-technologies-forum/204393/manchester-encoding-necessary-for-reliable-cc1101-reception
+      writeReg(CC1101_MDMCFG2,  0x13); // dc offset + gfsk + no manchester encoding. not useful for gfsk
+
+      //writeReg(CC1101_MDMCFG2,  0x1B); // gfsk + enable manchester encoding
       
       // Note: Can't use ASK unless the PAtable is actually populated properlly..
-      writeReg(CC1101_MDMCFG2,  0x0B); // 2FSK + enable manchester encoding      
+      //writeReg(CC1101_MDMCFG2,  0x0B); // 2FSK + enable manchester encoding      
       //writeReg(CC1101_MDMCFG1,  0x42); // fec disabled, 4 bytes preamble
       writeReg(CC1101_MDMCFG1,  0x62); // fec disabled, 16 bytes preamble
       writeReg(CC1101_MDMCFG0,  0xF8);
