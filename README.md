@@ -18,6 +18,16 @@ This library supports sending large strings/streams of data, using multiple 61 b
 * This [868Mhz module](https://www.aliexpress.com/item/CC1101-Wireless-Module-Long-Distance-Transmission-Antenna-868MHZ-M115/32635393463.html)
 * This [433Mhz module](https://www.aliexpress.com/item/32855767133.html)
 
+## Antenna, Antenna, Antenna!
+Obviously with RF communications, the antenna is the most important part. The CC1101 modules you get from Aliexpress or eBay typically come with a spring coil antenna. These do the job if you only want to transmit 10-30 meters, but beyond that they're absolute garbage.
+
+Using a straight copper wire as an antenna can give you a MASSIVE gain in reception!
+
+![433 and 868Mhz antenna](simple_antenna.jpg)
+
+So if you want better reception and can live with a longer antenna, then remove the spring coil antenna and try the suggested.
+
+
 ## Installation
 
 Pull this repository, and load the .ino file onto two ESP8266 devices with the opposite sending/receiving addresses configured (refer to the sketch code).
