@@ -27,6 +27,8 @@ Using a straight copper wire as an antenna can give you a MASSIVE gain in recept
 
 So if you want better reception and can live with a longer antenna, then remove the spring coil antenna and try the suggested.
 
+Note: dBm values above were based off my testing two CC1101's approx 5 meters away from each other.
+
 
 ## Installation
 
