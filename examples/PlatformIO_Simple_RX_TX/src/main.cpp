@@ -1,6 +1,27 @@
-/* Two devices are going to be required to test this obviously. */
+/*************************************************************************
+ * Simple Send and Recieve example.
+ * 
+ * Requires 2 x CC1101's. 
+ * 
+ * Tested with an ESP32 (sender) and ESP32-S2 Saola (reciever)
+ * 
+**************************************************************************/
 
 #include "cc1101.h"
+
+#if defined (CONFIG_IDF_TARGET_ESP32S2)
+
+  //Sample code to control the single NeoPixel on the ESP32-S2 Saola
+  #include <Adafruit_NeoPixel.h>
+
+  // On the ESP32S2 SAOLA GPIO is the NeoPixel.
+  #define PIN        18 
+
+  //Single NeoPixel
+  Adafruit_NeoPixel pixels(1, PIN, NEO_GRB + NEO_KHZ800);
+
+#endif
+
 
 /*******************************************************************
  * Radio, Device ID and Interrupt Pin configuration                */
@@ -18,36 +39,13 @@ build_flags =
 
 */
 
-/** 
- *  NOTE: On ESP8266 can't use D0 for interrupts on WeMos D1 mini.
- *        Using D0 with the 
- *        
- *  "All of the IO pins have interrupt/pwm/I2C/one-wire support except D0"
- * 
- * CC1101 GDO2 is connected to D2 on the ESP8266
- * CC1101 GDO0 isn't connected to anything.
- * Both GDO2 and GDO0 are configured in the CC1101 to behave the same.
- *
- */
-
-// External interrupt pin for GDO0
-#ifdef ESP32
-  #define GDO0_INTERRUPT_PIN 13 
-  #pragma message "esp32"
-#elif ESP8266
-  #define GDO0_INTERRUPT_PIN D2
-#elif __AVR__
-  #define GDO0_INTERRUPT_PIN 5 // Digital D2 or D3 on the Arduino Nano allow external interrupts only
-#endif
-
-
-
 CC1101 radio;
 
 unsigned long lastSend = 0;
-unsigned int sendDelay = 0;
+unsigned long lastRecv = 0;
+unsigned int sendDelay = 3000;
 
-int counter = 0;
+unsigned int counter = 0;
 String  send_payload;
 String  recieve_payload;
 
@@ -56,24 +54,37 @@ void setup()
     Serial.begin(115200);
     delay (100);
 
-    pinMode(LED_BUILTIN, OUTPUT);
 
+
+    #if defined (CONFIG_IDF_TARGET_ESP32S2)
+
+      //This pixel is just way to bright, lower it to 10 so it does not hurt to look at.
+      pixels.setBrightness(10);
+      pixels.begin(); // INITIALIZE NeoPixel (REQUIRED)
+      pixels.setPixelColor(0,Adafruit_NeoPixel::Color(0,0,255));
+      pixels.show();
+    #else
+      pinMode(LED_BUILTIN, OUTPUT);    
+    #endif
+
+
+    // Have a nice fastled led for signal strength
+    // FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS);	
+    // returnColor = Adafruit_NeoPixel::Color::BlueViolet; 
+    // FastLED.show(); 
+
+    delay(30); 
 
     Serial.println("Starting...");
-
- //  radio.setDebugLevel(5);
+    //radio.setDebugLevel(5); // uncomment to see detailed cc1101 SPI and library debug info
 
     // Start RADIO
-    while (!radio.begin(CFREQ_433, RADIO_CHANNEL, DEVICE_ADDRESS, GDO0_INTERRUPT_PIN /* Interrupt */));   // channel 16! Whitening enabled 
+    while (!radio.begin(CFREQ_433, RADIO_CHANNEL, DEVICE_ADDRESS));   // channel 16! Whitening enabled 
 
-   // radio.setOutputPowerLeveldBm(10); // max power
-     //radio.setDeviation(126.953125); // ok
-      //radio.setDeviation(47.607422);     // ok
-      // radio.setDeviation(31.738281);      // ok
-      
-      //radio.setDRate(249.938965); //ok
-      radio.setDRate(100); // changing drate for whaever reasons causes corrupted large packets!?
-   //   radio.setRxBW(203);
+    radio.setOutputPowerLeveldBm(10); // max power
+    radio.setDeviation(5.157471); // ok
+    radio.setDRate(0.8); //ok
+    radio.setRxBW(58.035714);
     
    
 #if defined(RECIEVE_ONLY)    
@@ -83,14 +94,10 @@ void setup()
     delay(1000); // Try again in 5 seconds
     //radio.printCConfigCheck();     
 
-
     Serial.println(F("CC1101 radio initialized."));
     recieve_payload.reserve(512);
     
     
-
-    
-    sendDelay = 6000; //random(1000, 3000);
 #if !defined(RECIEVE_ONLY)    
     Serial.printf("Sending a message every %d ms.\n", sendDelay);
 #endif 
@@ -103,44 +110,84 @@ void setup()
 void loop() 
 {
     unsigned long now = millis();
+
+    #if defined (CONFIG_IDF_TARGET_ESP32S2)  
+      if ((now - lastRecv) > 5000) 
+      {
+            pixels.setPixelColor(0, 0);
+            pixels.show();  
+      }
+    #endif
     
     if ( radio.dataAvailable() )
     {       
-        Serial.println("Data available.");
-        digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)           
+        Serial.println("Data available.");    
 
         recieve_payload  = String(radio.getChars()); // pointer to memory location of start of string
-        //Serial.print("Payload size recieved: "); Serial.println(radio.getSize());
+
         Serial.print("Payload received: ");
         Serial.println(recieve_payload);
-        delay(100);
-        digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW   
 
+
+        Serial.print("Rssi: "); Serial.print(radio.getLastRSSI()); Serial.println("dBm");     
+                        
+
+     #if defined (CONFIG_IDF_TARGET_ESP32S2)       
+
+        uint8_t rssi = abs(radio.getLastRSSI());
+        uint32_t returnColor = 0;
+        if (rssi < 45)
+          returnColor = Adafruit_NeoPixel::Color(255,255,255); // white
+        else if (rssi < 50)
+          returnColor = Adafruit_NeoPixel::Color(0,255,0); // bright green
+        else if (rssi < 60)
+          returnColor = Adafruit_NeoPixel::Color(0,128,0);          
+        else if (rssi < 70)
+          returnColor = Adafruit_NeoPixel::Color(0,96,0);
+        else if (rssi < 80)
+          returnColor = Adafruit_NeoPixel::Color(128,128,0); // amber
+        else if (rssi < 90)
+          returnColor = Adafruit_NeoPixel::Color(100,0,0); // faint red
+        else if (rssi < 120)
+          returnColor = Adafruit_NeoPixel::Color(200,0,0); // red
+
+        //Set the new color on the pixel.
+        pixels.setPixelColor(0, returnColor);
+
+        // Send the updated pixel colors to the hardware.
+        pixels.show();            
+        //Serial.println(radio.getLastRSSI());
+
+      #else
+        digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)   
+        delay(100);
+        digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW             
+      #endif
+
+       lastRecv = now;
     }
 
     // Periodically send something random.
     if (now > lastSend) 
     {
        // radio.setRxAlways();
-        radio.printMarcstate();
+        // radio.printMarcstate();
+
+
 #if !defined(RECIEVE_ONLY)
 
         Serial.println("Sending message.");        
         digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
-        //send_payload = "Sending a large and long messages " + String (counter) + " from device " + String(DEVICE_ADDRESS) + ". Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book.";
+  
         //send_payload = "0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789";
-       // send_payload = "0123456789------------------------------------------012345";
-        //send_payload = "0123456789---------------------------------------------XX";
-        send_payload = "0123456789---------------------------------------------";
-      //      send_payload = "0123456789";    
-        //radio.sendChars("Testing 123", DEST_ADDRESS);     
-        radio.sendChars("0123456789------------------------------------------012345", DEST_ADDRESS);     
+        // send_payload = "0123456789------------------------------------------012345";
+
+        send_payload = "Messages " + String (counter) + " from device " + String(DEVICE_ADDRESS) + ".";
+        radio.sendChars(send_payload.c_str(), DEST_ADDRESS);     
 
         Serial.print("Payload sent: ");
-        Serial.println(send_payload);        
-                
-       
-
+        Serial.println(send_payload); 
+  
         counter++;
 
         // IMPORTANT: Kick the radio into receive mode, otherwise it will sit IDLE and be TX only.

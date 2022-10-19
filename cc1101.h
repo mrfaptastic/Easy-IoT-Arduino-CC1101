@@ -553,10 +553,10 @@ class CC1101
   public:    
 
     CC1101(void);
-    bool begin(CFREQ freq, uint8_t channr, uint8_t addr, uint8_t interrupt_pin);
+    bool begin(CFREQ freq, uint8_t channr, uint8_t addr);
 
     /* For when all the configuration data is provided */
-    bool begin(const byte regConfig[NUM_CONFIG_REGISTERS], uint8_t interrupt_pin);    
+    //bool begin(const byte regConfig[NUM_CONFIG_REGISTERS], uint8_t interrupt_pin);    
 
     /**
      * wakeUp

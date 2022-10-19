@@ -1,6 +1,7 @@
 /* Two devices are going to be required to test this obviously. */
 
 #include "cc1101.h"
+#include <Arduino.h>
 
 /*******************************************************************
  * Radio, Device ID and Interrupt Pin configuration                */
@@ -31,18 +32,6 @@ build_flags =
  *
  */
 
-// External interrupt pin for GDO0
-#ifdef ESP32
-  #define GDO0_INTERRUPT_PIN 13 
-  #pragma message "esp32"
-#elif ESP8266
-  #define GDO0_INTERRUPT_PIN D2
-#elif __AVR__
-  #define GDO0_INTERRUPT_PIN 5 // Digital D2 or D3 on the Arduino Nano allow external interrupts only
-#endif
-
-
-
 CC1101 radio;
 
 unsigned long lastSend = 0;
@@ -59,13 +48,12 @@ void setup()
 
     pinMode(LED_BUILTIN, OUTPUT);
 
-
     Serial.println("Starting...");
 
     //radio.set_debug_level(1);
 
     // Start RADIO
-    while (!radio.begin(CFREQ_433, RADIO_CHANNEL, DEVICE_ADDRESS, GDO0_INTERRUPT_PIN /* Interrupt */));   // channel 16! Whitening enabled 
+    while (!radio.begin(CFREQ_433, RADIO_CHANNEL, DEVICE_ADDRESS));   // channel 16! Whitening enabled 
 
     radio.setOutputPowerLeveldBm(10); // max power
      
@@ -76,7 +64,10 @@ void setup()
     recieve_payload.reserve(512);
 
     // IMPORTANT: Kick the radio into receive mode, otherwise it will sit IDLE and be TX only.
-    radio.setRxState();
+#if defined(RECIEVE_ONLY)    
+    radio.setRxAlways();
+    radio.setRxState();        
+#endif  
 
     sendDelay = 6000; //random(1000, 3000);
 #if !defined(RECIEVE_ONLY)    
@@ -99,8 +90,10 @@ void loop()
 
         recieve_payload  = String(radio.getChars()); // pointer to memory location of start of string
         //Serial.print("Payload size recieved: "); Serial.println(radio.getSize());
+		
         Serial.print("Payload received: ");
         Serial.println(recieve_payload);
+		
         delay(100);
         digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW   
 
@@ -115,23 +108,14 @@ void loop()
 
         Serial.println("Sending message.");        
         digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
-        //send_payload = "Sending a large and long messages " + String (counter) + " from device " + String(DEVICE_ADDRESS) + ". Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book.";
-        //send_payload = "0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789";
-        send_payload = "0123456789------------------------------------------012345";
-     //   send_payload = "0123456789---------------------------------------------XX";
-        //    send_payload = "0123456789";    
-        //radio.sendChars("Testing 123", DEST_ADDRESS);     
+    
+		send_payload = "0123456789------------------------------------------012345";
         radio.sendChars(send_payload.c_str(), DEST_ADDRESS);     
 
         Serial.print("Payload sent: ");
-        Serial.println(send_payload);        
-                
-       
+        Serial.println(send_payload);                       
 
         counter++;
-
-        // IMPORTANT: Kick the radio into receive mode, otherwise it will sit IDLE and be TX only.
-        radio.setRxState();        
 
         delay(100);
         digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW        

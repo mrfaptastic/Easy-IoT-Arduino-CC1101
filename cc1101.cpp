@@ -87,12 +87,12 @@ void CC1101::configureGPIO(void)
    @param freq Carrier frequency
    @param mode Working mode (speed, ...)
 */
-bool CC1101::begin(CFREQ freq, uint8_t channr, uint8_t addr, uint8_t _int_pin)
+bool CC1101::begin(CFREQ freq, uint8_t channr, uint8_t addr)
 {
   carrierFreq = freq;
   dataRate    = KBPS_38;
   
-  CC1101_GDO0_interrupt_pin = _int_pin;
+ // CC1101_GDO0_interrupt_pin = _int_pin;
 
   channel       = channr;
   devAddress    = addr; 
