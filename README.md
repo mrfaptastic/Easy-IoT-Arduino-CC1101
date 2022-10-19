@@ -19,7 +19,7 @@ This library supports sending large strings/streams of data, using multiple 61 b
 * This [433Mhz module](https://www.aliexpress.com/item/32855767133.html)
 
 ## Antenna, Antenna, Antenna!
-Obviously with RF communications, the antenna is the most important part. The CC1101 modules you get from Aliexpress or eBay typically come with a spring coil antenna. These do the job if you only want to transmit 10-30 meters, but beyond that they're absolute garbage.
+Obviously with RF communications, the antenna is the most important part. The CC1101 modules you get from Aliexpress or eBay typically come with a spring coil antenna. These do the job if you only want to transmit a few meters, but beyond that they're garbage.
 
 Using a straight copper wire as an antenna can give you a MASSIVE gain in reception!
 
