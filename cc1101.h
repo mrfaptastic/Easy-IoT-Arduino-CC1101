@@ -31,12 +31,8 @@ enum CFREQ
 // Low bandwidth datarates just don't work, yet another bug in the CC1101? Last 5 bytes are usually garbage / CRC fails.
 enum DATA_RATE
 {
-  KBPS_250
-
-  /*
-  ,
-  KBPS_1
-  */
+  KBPS_250,
+  KBPS_38
 };
 
 /**
@@ -295,10 +291,10 @@ static uint8_t patable_power_9XX[]  = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
 
 // ****** START: Configuration Settings that can change depending on FREQ / Data Rate (Modulation)
   
-  // Carrier frequency = 433 MHz
+  // Carrier frequency = 433 MHz - (433.099792)
   #define CC1101_DEFVAL_FREQ2_433  0x10        // Frequency Control Word, High Byte
-  #define CC1101_DEFVAL_FREQ1_433  0xB1        // Frequency Control Word, Middle Byte
-  #define CC1101_DEFVAL_FREQ0_433  0x3B        // Frequency Control Word, Low Byte
+  #define CC1101_DEFVAL_FREQ1_433  0xA8        // Frequency Control Word, Middle Byte
+  #define CC1101_DEFVAL_FREQ0_433  0x5E        // Frequency Control Word, Low Byte
   
   // Carrier frequency = 868 MHz - 868.299866
   #define CC1101_DEFVAL_FREQ2_868  0x21        // Frequency Control Word, High Byte
@@ -323,8 +319,8 @@ static uint8_t patable_power_9XX[]  = {0x0B,0x1B,0x6D,0x67,0x50,0x85,0xC9,0xC1};
   
   // These won't change - Modem behaviour. Irrelevant to freq / bitrate
   #define CC1101_DEFVAL_MCSM2      0x07        // Main Radio Control State Machine Configuration  // Stay in RX until end of packet.
-  //#define CC1101_DEFVAL_MCSM1      0x30        // Main Radio Control State Machine Configuration  // What do do after a packet is sent or recieved. 0x30 = go to idle, 0x33 - switch to rx after tx 
-  #define CC1101_DEFVAL_MCSM1      0x3F        // Main Radio Control State Machine Configuration  // What do do after a packet is sent or recieved. 0x30 = go to idle, 0x3F - switch to rx after tx 
+  #define CC1101_DEFVAL_MCSM1      0x33        // Main Radio Control State Machine Configuration  // What do do after a packet is sent or recieved. 0x30 = go to idle, 0x33 - switch to rx after tx only, 0x3F - stay in RX always
+  #define CC1101_DEFVAL_MCSM1_RXALWAYS      0x3F        // Main Radio Control State Machine Configuration  // What do do after a packet is sent or recieved. 0x30 = go to idle, 0x33 - switch to rx after tx only, 0x3F - stay in RX always
   #define CC1101_DEFVAL_MCSM0      0x18        // Main Radio Control State Machine Configuration // CALIBRATION
   
   // These might change with freq / bitrate
@@ -502,42 +498,14 @@ class CC1101
           return 0x3F - raw;
      }
      
-     
-    
-    
-  public:    
-
-    CC1101(void);
-
     void attachGDO0Interrupt(void);
     void detachGDO0Interrupt(void);   
+    void cmdStrobe(uint8_t cmd);   
 
+    void Split_MDMCFG1(void);
+    void Split_MDMCFG4(void);
 
-	 //!radio.begin(CFREQ_868, KBPS_250, /* channel num */ 16, /* address */ 0, CC1101_DEFVAL_ADDR, INTERRUPT_PIN /* Interrupt */) ) // channel 16! Whitening enabled 
-	 
-    bool begin(CFREQ freq, uint8_t channr, uint8_t addr, uint8_t interrupt_pin);
-    
-    /* For when all the configuration data is provided */
-    bool begin(const byte regConfig[NUM_CONFIG_REGISTERS], uint8_t interrupt_pin);    
-
-
-    /**
-     * cmdStrobe
-     * 
-     * Send command strobe to the CC1101 IC via SPI
-     * 
-     * 'cmd'  Command strobe
-     */
-    void cmdStrobe(uint8_t cmd);
-
-    /**
-     * wakeUp
-     * 
-     * Wake up CC1101 from Power Down state
-     */
-    void wakeUp(void);
-
-    /**
+  /**
      * readReg
      * 
      * Read CC1101 register via SPI
@@ -548,9 +516,9 @@ class CC1101
      * Return:
      *  Data byte returned by the CC1101 IC
      */
-    uint8_t readReg(uint8_t regAddr, uint8_t regType);
+    uint8_t readReg(uint8_t regAddr, uint8_t regType);  
 
-    /**
+   /**
      * 
      * readStatusRegSafe(uint8_t regAddr)
      * http://e2e.ti.com/support/wireless-connectivity/other-wireless/f/667/t/334528?CC1101-Random-RX-FIFO-Overflow
@@ -566,14 +534,36 @@ class CC1101
      * 'regAddr'  Register address
      * 'value'  Value to be writen
      */
-    void writeReg(uint8_t regAddr, uint8_t value);
+    void writeReg(uint8_t regAddr, uint8_t value);          
 
     /**
      * setCCregs
      * 
      * Configure CC1101 registers
      */
-    void setCCregs(void);
+    void setCCregs(void);    
+
+    byte m1FEC  = 0x0;
+    byte m1PRE  = 0x0;
+    byte m1CHSP = 0x0;    
+    byte m4RxBw = 0x0;
+    byte m4DaRa = 0x0;    
+    
+    
+  public:    
+
+    CC1101(void);
+    bool begin(CFREQ freq, uint8_t channr, uint8_t addr, uint8_t interrupt_pin);
+
+    /* For when all the configuration data is provided */
+    bool begin(const byte regConfig[NUM_CONFIG_REGISTERS], uint8_t interrupt_pin);    
+
+    /**
+     * wakeUp
+     * 
+     * Wake up CC1101 from Power Down state
+     */
+    void wakeUp(void);
 
     /**
      * Power Cycle Reset 
@@ -589,15 +579,6 @@ class CC1101
      */
     void softReset(void);    
     
-    /**
-     * init
-     * 
-     * Initialize CC1101 radio from inital power-on
-     *
-     * @param freq Carrier frequency
-     * @param mode Working mode (speed, ...)
-     */
-	 
 
     /**
      * setSyncWord
@@ -669,7 +650,6 @@ class CC1101
     char *  getChars(void);
     //bool sendBytes(byte * data);    
 
-
     /**
      * Returns pointer to RX buffer
      */
@@ -695,7 +675,6 @@ class CC1101
      */
     bool sendPacket(CCPACKET packet);
     
-
     /**
      * receivePacket
      * 
@@ -727,13 +706,23 @@ class CC1101
      */
     void setOutputPowerLeveldBm(int8_t dBm);	
 	
-	
+
     /**
      * printPATable
      * 
      * Print the current PA Table Values
      */
     void printPATable(void);	
+
+
+    /*
+     * Borrowed from ELECHOUSE_CC1101_SRC_DRV
+    */
+    void setChsp(float f);
+    void setRxBW(float f);
+    void setDRate(float d);
+    void setDeviation(float d);
+    void setRxAlways();
 	
     /**
      * printCConfigCheck
@@ -744,7 +733,7 @@ class CC1101
     bool printCConfigCheck(void);
 
     /* Enable verbose output on serial port */
-    void set_debug_level(uint8_t set_debug_level = 1);
+    void setDebugLevel(uint8_t level = 1);
 
     /* Validate config registers with what is expected */
     bool checkCC(void);

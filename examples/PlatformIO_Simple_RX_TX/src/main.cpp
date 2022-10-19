@@ -61,22 +61,35 @@ void setup()
 
     Serial.println("Starting...");
 
-    //radio.set_debug_level(1);
+ //  radio.setDebugLevel(5);
 
     // Start RADIO
     while (!radio.begin(CFREQ_433, RADIO_CHANNEL, DEVICE_ADDRESS, GDO0_INTERRUPT_PIN /* Interrupt */));   // channel 16! Whitening enabled 
 
-    radio.setOutputPowerLeveldBm(10); // max power
-     
+   // radio.setOutputPowerLeveldBm(10); // max power
+     //radio.setDeviation(126.953125); // ok
+      //radio.setDeviation(47.607422);     // ok
+      // radio.setDeviation(31.738281);      // ok
+      
+      //radio.setDRate(249.938965); //ok
+      radio.setDRate(100); // changing drate for whaever reasons causes corrupted large packets!?
+   //   radio.setRxBW(203);
+    
+   
+#if defined(RECIEVE_ONLY)    
+    radio.setRxAlways();
+    radio.setRxState();        
+#endif     
     delay(1000); // Try again in 5 seconds
     //radio.printCConfigCheck();     
 
+
     Serial.println(F("CC1101 radio initialized."));
     recieve_payload.reserve(512);
+    
+    
 
-    // IMPORTANT: Kick the radio into receive mode, otherwise it will sit IDLE and be TX only.
-    radio.setRxState();
-
+    
     sendDelay = 6000; //random(1000, 3000);
 #if !defined(RECIEVE_ONLY)    
     Serial.printf("Sending a message every %d ms.\n", sendDelay);
@@ -108,7 +121,7 @@ void loop()
     // Periodically send something random.
     if (now > lastSend) 
     {
-
+       // radio.setRxAlways();
         radio.printMarcstate();
 #if !defined(RECIEVE_ONLY)
 
@@ -116,11 +129,12 @@ void loop()
         digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
         //send_payload = "Sending a large and long messages " + String (counter) + " from device " + String(DEVICE_ADDRESS) + ". Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book.";
         //send_payload = "0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789";
-        send_payload = "0123456789------------------------------------------012345";
-     //   send_payload = "0123456789---------------------------------------------XX";
-        //    send_payload = "0123456789";    
+       // send_payload = "0123456789------------------------------------------012345";
+        //send_payload = "0123456789---------------------------------------------XX";
+        send_payload = "0123456789---------------------------------------------";
+      //      send_payload = "0123456789";    
         //radio.sendChars("Testing 123", DEST_ADDRESS);     
-        radio.sendChars(send_payload.c_str(), DEST_ADDRESS);     
+        radio.sendChars("0123456789------------------------------------------012345", DEST_ADDRESS);     
 
         Serial.print("Payload sent: ");
         Serial.println(send_payload);        

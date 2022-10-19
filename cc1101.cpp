@@ -90,7 +90,7 @@ void CC1101::configureGPIO(void)
 bool CC1101::begin(CFREQ freq, uint8_t channr, uint8_t addr, uint8_t _int_pin)
 {
   carrierFreq = freq;
-  dataRate    = KBPS_250;
+  dataRate    = KBPS_38;
   
   CC1101_GDO0_interrupt_pin = _int_pin;
 
@@ -108,10 +108,11 @@ bool CC1101::begin(CFREQ freq, uint8_t channr, uint8_t addr, uint8_t _int_pin)
   flushTxFifo();     
 
   // Send empty packet (which won't actually send a packet, but will flush the Rx FIFO only.)
+  /*
   CCPACKET packet;
   packet.payload_size = 0;
   sendPacket(packet);  
-
+  */
   //attachGDO0Interrupt();
 
   if ( checkCC() == false )
@@ -122,7 +123,7 @@ bool CC1101::begin(CFREQ freq, uint8_t channr, uint8_t addr, uint8_t _int_pin)
     return false;
   }
 
-  setRxState();
+  //setRxState();
 
   return true;
 
@@ -470,67 +471,80 @@ void CC1101::setCCregs(void)
   writeReg(CC1101_RCCTRL0,  CC1101_DEFVAL_RCCTRL0);
 
 
-
   // Data Rate - details extracted from SmartRF Studio
   switch (dataRate)
   {
     case KBPS_250:
-      writeReg(CC1101_FSCTRL0, 0x21);
-      writeReg(CC1101_FSCTRL1, 0x0C); // Frequency Synthesizer Control (optimised for sensitivity)
+    case KBPS_38: 
+
+      writeReg(CC1101_FSCAL1,  0x00);
+      writeReg(CC1101_FSCAL2,  0x1F);
+      writeReg(CC1101_FSCAL3,  0xEA);
+
+   //   writeReg(CC1101_FSCTRL0, 0x21);
+   //   writeReg(CC1101_FSCTRL1, 0x0C); // Frequency Synthesizer Control (optimised for sensitivity)
+
       writeReg(CC1101_MDMCFG4, 0x2D); // Modem Configuration      
       writeReg(CC1101_MDMCFG3, 0x3B); // Modem Configuration
-      writeReg(CC1101_MDMCFG2,  0x13);
-      writeReg(CC1101_MDMCFG1,  0x42); // fec disabled, 4 bytes preamble
+      //writeReg(CC1101_MDMCFG2,  0x13);
+
+      // writeReg(CC1101_MDMCFG2,  0x1B); // gfsk + enable manchester encoding
+      
+      // Note: Can't use ASK unless the PAtable is actually populated properlly..
+      writeReg(CC1101_MDMCFG2,  0x0B); // 2FSK + enable manchester encoding      
+      //writeReg(CC1101_MDMCFG1,  0x42); // fec disabled, 4 bytes preamble
+      writeReg(CC1101_MDMCFG1,  0x62); // fec disabled, 16 bytes preamble
       writeReg(CC1101_MDMCFG0,  0xF8);
 
       writeReg(CC1101_DEVIATN, 0x62); // Modem Deviation Setting
       writeReg(CC1101_FOCCFG, 0x1D); // Frequency Offset Compensation Configuration
       writeReg(CC1101_BSCFG, 0x1C); // Bit Synchronization Configuration
+
       writeReg(CC1101_AGCCTRL2, 0xC7); // AGC Control
       writeReg(CC1101_AGCCTRL1, 0x00); // AGC Control
       writeReg(CC1101_AGCCTRL0, 0xB0); // AGC Control
+
       writeReg(CC1101_FREND1, 0xB6); // Front End RX Configuration
-
-      writeReg(CC1101_FSCAL3,  0xEA);
-      writeReg(CC1101_FSCAL0,  0x2A);
-      writeReg(CC1101_FSCAL1,  0x00);
-      writeReg(CC1101_FSCAL2,  0x1F);
-
-
+      
       break;
 
-/*
+
     // Low throughput (1.2kbps) transmission doesn't work.  Can't get it to work.
     // Last 5 bytes of all received payloads are garbage!!
     // RX Buffer Data: 1, 1, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, D3, 88, F1, 14, B,  
 
-    case KBPS_1:
-      writeReg(CC1101_FSCTRL0, 0x0); // (optimised for sensitivity)
-      writeReg(CC1101_FSCTRL1, 0x06); // Frequency Synthesizer Control
+  //    case KBPS_38:
+/*
+ 
+    writeReg(CC1101_FSCAL0,  0x1F);
+    writeReg(CC1101_FSCAL1,  0x00);
+    writeReg(CC1101_FSCAL2,  0x2A);
+    writeReg(CC1101_FSCAL3,  0xEA);
 
-      writeReg(CC1101_MDMCFG4, 0xF6); // Modem Configuration      
-      writeReg(CC1101_MDMCFG3, 0x83); // Modem Configuration
-      writeReg(CC1101_MDMCFG2, 0x13); 
-      writeReg(CC1101_MDMCFG1,  0x22); // fec disabled, 4 bytes preamble
-      writeReg(CC1101_MDMCFG0,  0xF8);        
+    
+      writeReg(CC1101_FSCTRL0,    0x08);
+      writeReg(CC1101_FSCTRL1,    0x00); // Frequency Synthesizer Control (optimised for sensitivity)
 
-      writeReg(CC1101_DEVIATN,  0x40); // Modem Deviation Setting
+      writeReg(CC1101_MDMCFG4,  0x7B); // Modem Configuration      
+      writeReg(CC1101_MDMCFG3,  0x83        ); // Modem Configuration
+      writeReg(CC1101_MDMCFG2,  0x1B); // no fec, 24 byte preamble
+      writeReg(CC1101_MDMCFG1,  0x72); // dc blokcing, gfsk, manchester encoing, 4 byte sync word
+      writeReg(CC1101_MDMCFG0,  0xF8);    
+
+      writeReg(CC1101_DEVIATN,  0x42        ); // Modem Deviation Setting
       writeReg(CC1101_FOCCFG,   0x16); // Frequency Offset Compensation Configuration
-      writeReg(CC1101_BSCFG,    0x6C); // Bit Synchronization Configuration
-      writeReg(CC1101_AGCCTRL2, 0x03); // AGC Control
-      writeReg(CC1101_AGCCTRL1, 0x40); // AGC Control
-      writeReg(CC1101_AGCCTRL0, 0x91); // AGC Control
+      writeReg(CC1101_BSCFG,    0x6C        ); // Bit Synchronization Configuration
+      
+      writeReg(CC1101_AGCCTRL2,  0xC7        ); // AGC Control
+      writeReg(CC1101_AGCCTRL1, 0x00); // AGC Control
+      writeReg(CC1101_AGCCTRL0, 0xB2); // AGC Control
       
       writeReg(CC1101_FREND0, 0x10); // Front End RX Configuration           
       writeReg(CC1101_FREND1, 0x56); // Front End RX Configuration      
-
-      writeReg(CC1101_FSCAL3,  0xE9);
-      writeReg(CC1101_FSCAL2,  0x2A);     
-      writeReg(CC1101_FSCAL1,  0x00);
-      writeReg(CC1101_FSCAL0,  0x1F);
+*/
 
       break;
- */     
+   
   }
 
 }
@@ -817,6 +831,11 @@ bool CC1101::sendPacket(CCPACKET packet)
   byte rxBytes, rxUnderflow;    
   bool res = false;
 
+  /* For whatever reason if we are NOT already in IDLE state before trying to send a packet,
+     at data rates < 200kbps, the last two bytes message is corrupt at reciever. What the FUCK!??
+   */
+  setIdleState();       // Enter IDLE state
+
   if (debug_level >= 1)
     Serial.println(F("sendPacket()"));  
 
@@ -850,8 +869,7 @@ bool CC1101::sendPacket(CCPACKET packet)
   {
       if (debug_level >= 1)    
         Serial.println(F("TX FIFO contains garbage. Flushing. "));
-    
-    setIdleState();       // Enter IDLE state
+
     flushTxFifo();        // Flush Tx FIFO
   }
 
@@ -924,6 +942,7 @@ bool CC1101::sendPacket(CCPACKET packet)
 
 
   writeBurstReg(CC1101_TXFIFO, cc1101_rx_tx_fifo_tmp_buff, CCPACKET_MAX_SIZE);
+  
 
   // Send the contents of th RX/TX buffer to the CC1101, one byte at a time
   // the receiving CC1101 will append two bytes for the LQI and RSSI
@@ -951,12 +970,16 @@ bool CC1101::sendPacket(CCPACKET packet)
 		Serial.println(readStatusReg(CC1101_TXBYTES) & 0x7F, DEC);
 	}
 
-
 	// CCA enabled: will enter TX state only if the channel is clear
+ 
   while (currentState != STATE_TX)
   {
 	  setTxState();
+    delay(2);
   }
+  
+
+ // setTxState(); 
 
 
   // Wait until it has been sent before failing
@@ -983,7 +1006,7 @@ bool CC1101::sendPacket(CCPACKET packet)
     }
   }	
 
-  setRxState();
+ // setRxState();
 
 	return res;
 }
@@ -1183,6 +1206,18 @@ cmdStrobe(CC1101_SNOP);
 
 
     }
+
+/*
+  // WE COULD BE STILL reciving bytes into the RF interface whilst this number is read, so it might not be accurate!
+  rxBytes = readStatusRegSafe(CC1101_RXBYTES); // Unread bytes in RX FIFO according to CC1101. TODO: Need to do this safely
+
+  // Repurpose these variables
+  rxBytes     = rxBytes & BYTES_IN_FIFO;
+
+  Serial.print("Left oVer bytes: ");
+  Serial.println(rxBytes, DEC);
+
+*/
 
   // attachGDO0Interrupt();
   return _streamReceived;
@@ -1413,7 +1448,7 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
       
    */ 
     // Back to RX state
-    setRxState();
+    //setRxState();
 
     if (debug_level >= 1)
       Serial.printf("Took %d milliseconds to complete recievePacket()\n", (millis() - start_tm));
@@ -1506,7 +1541,215 @@ void CC1101::setOutputPowerLeveldBm(int8_t dBm)
 
 } // end of setOutputPowerLevel
 	
-	
+void CC1101::Split_MDMCFG1(void) {
+
+  int calc = readReg(CC1101_MDMCFG1, CC1101_CONFIG_REGISTER);
+  m1FEC = 0;
+  m1PRE = 0;
+  m1CHSP = 0;
+  int s2 = 0;
+  for (bool i = 0; i == 0;) {
+    if (calc >= 128) {
+      calc -= 128;
+      m1FEC += 128;
+    } else if (calc >= 16) {
+      calc -= 16;
+      m1PRE += 16;
+    } else {
+      m1CHSP = calc;
+      i = 1;
+    }
+  }
+}
+
+/****************************************************************
+ *FUNCTION NAME:Split MDMCFG4
+ *FUNCTION     :none
+ *INPUT        :none
+ *OUTPUT       :none
+ ****************************************************************/
+void CC1101::Split_MDMCFG4(void) {
+  int calc = readReg(CC1101_MDMCFG4, CC1101_CONFIG_REGISTER);
+  m4RxBw = 0;
+  m4DaRa = 0;
+  for (bool i = 0; i == 0;) {
+    if (calc >= 64) {
+      calc -= 64;
+      m4RxBw += 64;
+    } else if (calc >= 16) {
+      calc -= 16;
+      m4RxBw += 16;
+    } else {
+      m4DaRa = calc;
+      i = 1;
+    }
+  }
+}
+
+/****************************************************************
+ *FUNCTION NAME:Set Channel spacing
+ *FUNCTION     :none
+ *INPUT        :none
+ *OUTPUT       :none
+ ****************************************************************/
+void CC1101::setChsp(float f) {
+
+  if (getMarcState() != MARCSTATE_IDLE) {
+    Serial.println("Error: Can't change channel spacing when not IDLE");
+    return;
+  }
+
+  Split_MDMCFG1();
+  byte MDMCFG0 = 0;
+  m1CHSP = 0;
+  if (f > 405.456543) {
+    f = 405.456543;
+  }
+  if (f < 25.390625) {
+    f = 25.390625;
+  }
+  for (int i = 0; i < 5; i++) {
+    if (f <= 50.682068) {
+      f -= 25.390625;
+      f /= 0.0991825;
+      MDMCFG0 = f;
+      float s1 = (f - MDMCFG0) * 10;
+      if (s1 >= 5) {
+        MDMCFG0++;
+      }
+      i = 5;
+    } else {
+      m1CHSP++;
+      f /= 2;
+    }
+  }
+  writeReg(CC1101_MDMCFG1, m1CHSP + m1FEC + m1PRE);
+  writeReg(CC1101_MDMCFG0, MDMCFG0);
+}
+/****************************************************************
+ *FUNCTION NAME:Set Receive bandwidth
+ *FUNCTION     :none
+ *INPUT        :none
+ *OUTPUT       :none
+ ****************************************************************/
+void CC1101::setRxBW(float f) {
+
+  if (getMarcState() != MARCSTATE_IDLE)
+  {
+    Serial.println("Error: Can't change bandwidth when not IDLE");
+    return;
+  }
+
+  Split_MDMCFG4();
+  int s1 = 3;
+  int s2 = 3;
+  for (int i = 0; i < 3; i++) {
+    if (f > 101.5625) {
+      f /= 2;
+      s1--;
+    } else {
+      i = 3;
+    }
+  }
+  for (int i = 0; i < 3; i++) {
+    if (f > 58.1) {
+      f /= 1.25;
+      s2--;
+    } else {
+      i = 3;
+    }
+  }
+  s1 *= 64;
+  s2 *= 16;
+  m4RxBw = s1 + s2;
+  writeReg(CC1101_MDMCFG4, m4RxBw + m4DaRa);
+}
+/****************************************************************
+ *FUNCTION NAME:Set Data Rate
+ *FUNCTION     :none
+ *INPUT        :none
+ *OUTPUT       :none
+ ****************************************************************/
+void CC1101::setDRate(float d) {
+
+  if (getMarcState() != MARCSTATE_IDLE)
+  {
+    Serial.println("Error: Can't change data rate when not IDLE");
+    return;
+  }
+
+  Split_MDMCFG4();
+  float c = d;
+  byte MDMCFG3 = 0;
+  if (c > 1621.83) {
+    c = 1621.83;
+  }
+  if (c < 0.0247955) {
+    c = 0.0247955;
+  }
+  m4DaRa = 0;
+  for (int i = 0; i < 20; i++) {
+    if (c <= 0.0494942) {
+      c = c - 0.0247955;
+      c = c / 0.00009685;
+      MDMCFG3 = c;
+      float s1 = (c - MDMCFG3) * 10;
+      if (s1 >= 5) {
+        MDMCFG3++;
+      }
+      i = 20;
+    } else {
+      m4DaRa++;
+      c = c / 2;
+    }
+  }
+  writeReg(CC1101_MDMCFG4, m4RxBw + m4DaRa);
+  writeReg(CC1101_MDMCFG3, MDMCFG3);
+}
+/****************************************************************
+ *FUNCTION NAME:Set Devitation
+ *FUNCTION     :none
+ *INPUT        :none
+ *OUTPUT       :none
+ ****************************************************************/
+void CC1101::setDeviation(float d) {
+
+  if (getMarcState() != MARCSTATE_IDLE)
+  {
+    Serial.println("Error: Can't change deviation  when not IDLE");
+    return;
+  }
+
+  float f = 1.586914;
+  float v = 0.19836425;
+  int c = 0;
+  if (d > 380.859375) {
+    d = 380.859375;
+  }
+  if (d < 1.586914) {
+    d = 1.586914;
+  }
+  for (int i = 0; i < 255; i++) {
+    f += v;
+    if (c == 7) {
+      v *= 2;
+      c = -1;
+      i += 8;
+    }
+    if (f >= d) {
+      c = i;
+      i = 255;
+    }
+    c++;
+  }
+  writeReg(CC1101_DEVIATN, c);
+}
+
+/* Set the modem state to always be in RX */
+void CC1101::setRxAlways() {
+  writeReg(CC1101_MCSM1, CC1101_DEFVAL_MCSM1_RXALWAYS);
+  //setRxState();
+}
 	
 /**
 	Read the ChipCon Status Byte returned as a by-product of SPI communications.
@@ -1571,9 +1814,9 @@ void CC1101::readCCStatus(byte status)
 
 
 
-void CC1101::set_debug_level(uint8_t set_debug_level)
+void CC1101::setDebugLevel(uint8_t level)
 {
-    debug_level = set_debug_level;        //set debug level of CC1101 outputs
+    debug_level = level;        //set debug level of CC1101 outputs
 }
 
 
