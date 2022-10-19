@@ -9,6 +9,8 @@
 
 #include "cc1101.h"
 
+//#define ENABLE_U8X8_OLED_DISPLAY 1
+
 #if defined (CONFIG_IDF_TARGET_ESP32S2)
 
   //Sample code to control the single NeoPixel on the ESP32-S2 Saola
@@ -21,6 +23,20 @@
   Adafruit_NeoPixel pixels(1, PIN, NEO_GRB + NEO_KHZ800);
 
 #endif
+
+
+#if defined(ENABLE_U8X8_OLED_DISPLAY)
+  
+  #include <u8x8lib.h>          // Library to control the 128x64 Pixel OLED display with SH1106 chip  https://github.com/olikraus/u8x8
+
+  // "White Blue color 128X64 OLED LCD LED Display Module For Arduino 0.96 I2C IIC Serial new original with Case"
+
+  //u8x8_SSD1306_128X64_NONAME_F_SW_I2C u8x8(u8x8_R0, /* clock=*/ 9, /* data=*/ 8, /* reset=*/ U8X8_PIN_NONE); // MUST USE D3 for Data    
+  U8X8_SSD1306_128X64_NONAME_HW_I2C u8x8(/* clock=*/ 9, /* data=*/ 8, /* reset=*/ U8X8_PIN_NONE); // MUST USE D3 for Data        
+
+#endif
+
+
 
 
 /*******************************************************************
@@ -54,6 +70,9 @@ void setup()
     Serial.begin(115200);
     delay (100);
 
+    #if defined (ENABLE_U8X8_OLED_DISPLAY)
+      u8x8.begin();
+    #endif
 
 
     #if defined (CONFIG_IDF_TARGET_ESP32S2)
@@ -119,7 +138,7 @@ void loop()
       }
     #endif
     
-    if ( radio.dataAvailable() )
+    if ( radio.dataAvailable() ) // Got something!
     {       
         Serial.println("Data available.");    
 
@@ -162,6 +181,25 @@ void loop()
         digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)   
         delay(100);
         digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW             
+      #endif
+
+
+      #if defined(ENABLE_U8X8_OLED_DISPLAY)
+
+      String linedata1 = recieve_payload.substring(0,14);
+      String linedata2 = recieve_payload.substring(14,28);
+      String rssiStr = String(radio.getLastRSSI());
+
+        u8x8.clearDisplay();
+
+        // https://github.com/olikraus/u8g2/wiki/u8x8reference#drawstring
+        u8x8.setFont(u8x8_font_7x14_1x2_f);
+        u8x8.drawString(0, 0, linedata1.c_str());
+        u8x8.drawString(0, 2, linedata2.c_str());        
+         
+        u8x8.setFont(u8x8_font_courB18_2x3_n);
+        //u8x8.drawString(0, 5, rssiStr.c_str());        
+        u8x8.drawString(0, 5, rssiStr.c_str());       
       #endif
 
        lastRecv = now;
