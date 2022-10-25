@@ -8,11 +8,13 @@ CC1101 modules can be bought for a few dollars. These modules are tolerant of vo
 
 ## Using a CC1101
 
-Whilst the CC1101 is almost a 10 year old device, it is used is MANY low power or long life battery operated devices to transmit data. Given these transceivers work on the low frequency ISM bands (433, 868, 915 etc.), signals can travel a fair distance. The CC1101 is technically [better](https://www.youtube.com/watch?v=7zLUYswu3Ek) to the often mentioned LoRA / Semtech chip technology [apparently](https://e2e.ti.com/support/wireless-connectivity/sub-1-ghz/f/156/t/343273?Semtech-LoRa-vs-Performance-line-TI#).
+Whilst the CC1101 is almost a 10 year old device, it is used is MANY low power or long life battery operated devices to transmit data. Given these transceivers work on the low frequency ISM bands (433, 868, 915 etc.), signals can travel a fair distance. The CC1101 is technically [more reliable](https://www.youtube.com/watch?v=7zLUYswu3Ek) to LoRA / Semtech 'chirp spread spectrum' [apparently](https://e2e.ti.com/support/wireless-connectivity/sub-1-ghz/f/156/t/343273?Semtech-LoRa-vs-Performance-line-TI#) in busy/noisy environments.
 
-Whilst the CC1101 has some [show stopper bugs](http://www.ti.com/lit/er/swrz020e/swrz020e.pdf) this Arduino library aggressively works around these issues and as a result is reliable with continuous send and receive operation. 
+Whilst the CC1101 has some [silicon bugs](http://www.ti.com/lit/er/swrz020e/swrz020e.pdf) this  library works around these and as a result is reliable with continuous send and receive operations. 
 
-This library supports sending large strings/streams of data, using multiple 61 byte radio packets (that's the CC1101's underlying fixed radio packet size). However, using this functionality increases the risk of lost data - so your own packet/message acknowledgement code would be required. 
+This library also supports sending large 'payloads' of data by sending multiple 61 byte radio packets. However, doing this increases the risk of lost data - so your own packet/message acknowledgement code would be required. 
+
+Note: This library is configured to use the CC1101 with a fixed underlying radio packet size of 61 bytes.
 
 ## Tested and works with
 * This [868Mhz module](https://www.aliexpress.com/item/CC1101-Wireless-Module-Long-Distance-Transmission-Antenna-868MHZ-M115/32635393463.html)
