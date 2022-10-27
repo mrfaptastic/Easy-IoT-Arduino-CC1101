@@ -208,6 +208,16 @@ Recieved Message: Message #63 from device 64. Hello 32, I hope this messagee get
 
 ```
 
+## Alternative libraries
+
+There are plenty of alternatives to this library, which might be better for your needs:
+
+* https://github.com/jgromes/RadioLib
+* https://github.com/LSatan/SmartRC-CC1101-Driver-Lib
+* https://github.com/nopnop2002/esp-idf-cc1101
+* https://github.com/loboris/ESP32_CC1101
+
+
 ## Credits
 
 This library builds upon [veonik's](https://github.com/veonik/arduino-cc1101) CC1101 library as a base, which itself is built upon the panStamp library.
