@@ -95,14 +95,14 @@ void setup()
     delay(30); 
 
     Serial.println("Starting...");
-    //radio.setDebugLevel(5); // uncomment to see detailed cc1101 SPI and library debug info
+    radio.setDebugLevel(5); // uncomment to see detailed cc1101 SPI and library debug info
 
     // Start RADIO
     while (!radio.begin(CFREQ_433, RADIO_CHANNEL, DEVICE_ADDRESS));   // channel 16! Whitening enabled 
 
     radio.setOutputPowerLeveldBm(10); // max power
     radio.setDeviation(5.157471); // ok
-    radio.setDRate(0.8); //ok
+    radio.setDRate(1); //ok
     radio.setRxBW(58.035714);
     
    
@@ -220,7 +220,8 @@ void loop()
         //send_payload = "0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789";
         // send_payload = "0123456789------------------------------------------012345";
 
-        send_payload = "Messages " + String (counter) + " from device " + String(DEVICE_ADDRESS) + ".";
+        //send_payload = "Messages " + String (counter) + " from device " + String(DEVICE_ADDRESS) + ".";
+        send_payload = "Test message 12345678900";
         radio.sendChars(send_payload.c_str(), DEST_ADDRESS);     
 
         Serial.print("Payload sent: ");
