@@ -370,7 +370,7 @@ byte CC1101::readStatusRegSafe(uint8_t regAddr)
 {
   byte statusRegByte, statusRegByteVerify;
   
-  statusRegByte = readReg(regAddr, CC1101_STATUS_REGISTER);
+  statusRegByteVerify = readReg(regAddr, CC1101_STATUS_REGISTER);
   do
   {
       statusRegByte       = statusRegByteVerify;
