@@ -1169,7 +1169,16 @@ cmdStrobe(CC1101_SNOP);
               Serial.print(packet.payload[i], HEX); Serial.print(" ");
             }
         
-            Serial.printf("Received stream packet %d of %d. Buffer start position: %d, end position %d, payload size: %d\r\n", (int)packet.stream_pkt_seq_num, (int)packet.stream_num_of_pkts, (int)buff_start_pos, (int)buff_end_pos, (int) packet.payload_size);
+            Serial.print(F("Received stream packet "));
+            Serial.print((int)packet.stream_pkt_seq_num);
+            Serial.print(F(" of "));
+            Serial.print((int)packet.stream_num_of_pkts);
+            Serial.print(F(". Buffer start position: "));
+            Serial.print((int)buff_start_pos);
+            Serial.print(F(", end position "));
+            Serial.print((int)buff_end_pos);
+            Serial.print(F(", payload size: "));
+            Serial.println((int)packet.payload_size);
           }
 
           if ( buff_end_pos > MAX_STREAM_LENGTH)
@@ -1186,7 +1195,9 @@ cmdStrobe(CC1101_SNOP);
             {
 
                 if (debug_level >= 1) {
-                  Serial.printf("Multi-packet stream of %d bytes hase been received in full!\n", buff_end_pos);
+                  Serial.print(F("Multi-packet stream of "));
+                  Serial.print(buff_end_pos);
+                  Serial.println(F(" bytes has been received in full!"));
                 }
 
               receivedStreamSize = buff_end_pos;
@@ -1330,19 +1341,19 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
 
     if (debug_level >= 2)
     {
-      Serial.print("Packet Data: ");
+      Serial.print(F("Packet Data: "));
       for (int i = 0; i < CCPACKET_REC_SIZE; i++)
       {
         Serial.print(cc1101_rx_tx_fifo_tmp_buff[i], BIN);
-        Serial.print(", ");
+        Serial.print(F(", "));
       }
       Serial.println("");
 
-      Serial.print("Packet Data (char): ");
+      Serial.print(F("Packet Data (char): "));
       for (int i = 0; i < CCPACKET_REC_SIZE; i++)
       {
         Serial.print((char)cc1101_rx_tx_fifo_tmp_buff[i]);
-        Serial.print(", ");
+        Serial.print(F(", "));
       }
       Serial.println("");
     }
@@ -1353,11 +1364,12 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
       if (debug_level >= 2)
       {
 
-        if (packet->cc_dest_address == BROADCAST_ADDRESS)
+        if (packet->cc_dest_address == BROADCAST_ADDRESS) {
           Serial.println(F("* Received broadcast packet"));
+        }
 
-          Serial.print(F("Payload size is: "));
-          Serial.println(packet->payload_size, DEC);
+        Serial.print(F("Payload size is: "));
+        Serial.println(packet->payload_size, DEC);
       }
 
       // TESTING ONLY
@@ -1384,11 +1396,11 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
 
       if (debug_level >= 2)
       {     
-          Serial.print("RX Buffer Data: ");
+          Serial.print(F("RX Buffer Data: "));
           for (int i = 0; i < CCPACKET_REC_SIZE; i++) // include lqi and rssi bytes
           {
             Serial.print(cc1101_rx_tx_fifo_tmp_buff[i], HEX);
-            Serial.print(", ");
+            Serial.print(F(", "));
           }
           Serial.println("");
       }
@@ -1452,8 +1464,11 @@ byte CC1101::receivePacket(CCPACKET * packet) //if RF package received
     // Back to RX state
     //setRxState();
 
-    if (debug_level >= 1)
-      Serial.printf("Took %d milliseconds to complete recievePacket()\n", (millis() - start_tm));
+    if (debug_level >= 1) {
+      Serial.print(F("Took "));
+      Serial.print(millis() - start_tm);
+      Serial.println(F(" milliseconds to complete recievePacket()"));
+    }   
 
     return packet->payload_size;
 }
@@ -1532,10 +1547,10 @@ void CC1101::setOutputPowerLeveldBm(int8_t dBm)
 	  
 
   if (debug_level == 1) { 
-	  Serial.print(F("Setting PATABLE0 value to: "));
-	  Serial.println(pa_value, HEX);
+      Serial.print(F("Setting PATABLE0 value to: "));
+      Serial.println(pa_value, HEX);
   }
-	  
+
 	// Now write the value
 	for (uint8_t i = 0; i < 8; i++)
 		writeReg(CC1101_PATABLE,  pa_value); // Set all the PA tables to the same value
@@ -1597,7 +1612,7 @@ void CC1101::Split_MDMCFG4(void) {
 void CC1101::setChsp(float f) {
 
   if (getMarcState() != MARCSTATE_IDLE) {
-    Serial.println("Error: Can't change channel spacing when not IDLE");
+    Serial.println(F("Error: Can't change channel spacing when not IDLE"));
     return;
   }
 
@@ -1638,7 +1653,7 @@ void CC1101::setRxBW(float f) {
 
   if (getMarcState() != MARCSTATE_IDLE)
   {
-    Serial.println("Error: Can't change bandwidth when not IDLE");
+    Serial.println(F("Error: Can't change bandwidth when not IDLE"));
     return;
   }
 
@@ -1718,7 +1733,7 @@ void CC1101::setDeviation(float d) {
 
   if (getMarcState() != MARCSTATE_IDLE)
   {
-    Serial.println("Error: Can't change deviation  when not IDLE");
+    Serial.println(F("Error: Can't change deviation  when not IDLE"));
     return;
   }
 
@@ -1874,9 +1889,11 @@ void CC1101::readBurstReg(byte * buffer, byte regAddr, byte len)
     buffer[i] = SPI.transfer(0x00);     // Read result byte by byte
   cc1101_Deselect();                    // Deselect CC1101
 
-  if (debug_level >= 1)
-    Serial.printf("Read %d bytes.\n", len);
-
+  if (debug_level >= 1) {
+    Serial.print(F("Read "));
+    Serial.print(len);
+    Serial.println(F(" bytes."));
+  }
 }
 
 
