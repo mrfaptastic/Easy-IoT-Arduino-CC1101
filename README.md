@@ -2,6 +2,9 @@
 
 This is an easy to use Arduino CC1101 library (working example) to be able to connect a [Texas Instruments CC1101](http://www.ti.com/product/CC1101) to a ESP32, ESP8266 or AVR device (i.e. Arduino Nano).
 
+## This library is no longer maintained.
+It is recommended to use a library such as: https://github.com/jgromes/RadioLib/
+
 ## Buying a CC1101
 
 CC1101 modules can be bought for a few dollars. These modules are tolerant of voltages ranging from 1.8 to 3.3 volts. If using a 5 volt Arduino AVR device, you will need to use a 5V to 3.3V logic-level converter across the pins or you will FRY your CC1101.
